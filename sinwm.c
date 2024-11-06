@@ -173,6 +173,27 @@ void set_wallpaper(xcb_connection_t *conn, xcb_screen_t *screen) {
   xcb_flush(conn);
 }
 
+xcb_cursor_t create_blank_cursor(xcb_connection_t *conn, xcb_screen_t *screen) {
+  xcb_pixmap_t pixmap = xcb_generate_id(conn);
+  xcb_cursor_t cursor = xcb_generate_id(conn);
+  xcb_gcontext_t gc = xcb_generate_id(conn);
+
+  xcb_create_pixmap(conn, 1, pixmap, screen->root, 1, 1);
+
+  xcb_create_gc(conn, gc, pixmap, 0, NULL);
+
+  uint32_t foreground = 0;
+  xcb_change_gc(conn, gc, XCB_GC_FOREGROUND, &foreground);
+  xcb_poly_fill_rectangle(conn, pixmap, gc, 1, &(xcb_rectangle_t){0, 0, 1, 1});
+
+  xcb_create_cursor(conn, cursor, pixmap, pixmap, 0, 0, 0, 0, 0, 0, 0, 0);
+
+  xcb_free_gc(conn, gc);
+  xcb_free_pixmap(conn, pixmap);
+
+  return cursor;
+}
+
 void push_focus(xcb_window_t window) {
   for (int i = 0; i <= focus_stack_top; i++) {
     if (focus_stack[i] == window) {
@@ -798,7 +819,11 @@ int main() {
   uint8_t randr_event_base = randr_reply->first_event;
   uint8_t randr_error_base = randr_reply->first_error;
 
+  xcb_cursor_t blank_cursor = create_blank_cursor(conn, screen);
+  uint32_t cursors[] = {blank_cursor};
+  xcb_change_window_attributes(conn, screen->root, XCB_CW_CURSOR, cursors);
   xcb_randr_select_input(conn, screen->root, XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE);
+
   xcb_flush(conn);
 
   xcb_generic_event_t *event;
@@ -822,7 +847,10 @@ int main() {
     free(event);
   }
 
-  if (active_window != XCB_WINDOW_NONE) remove_net_active_window(conn);
+  if (active_window != XCB_WINDOW_NONE)
+    remove_net_active_window(conn);
+
+  xcb_free_cursor(conn, blank_cursor);
   xcb_disconnect(conn);
   return 0;
 }
