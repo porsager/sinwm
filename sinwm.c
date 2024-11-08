@@ -55,6 +55,7 @@ monitor_t monitors[MAX_MONITORS];
 int monitor_count = 0;
 
 int total_width = 0, total_height = 0;
+int real_total_width = 0, real_total_height = 0;
 
 xcb_window_t focus_stack[MAX_WINDOWS];
 int focus_stack_top = -1;
@@ -128,7 +129,7 @@ xcb_pixmap_t load_wallpaper(xcb_connection_t *conn, xcb_screen_t *screen, const 
     png_bytep row = row_pointers[y];
     for(int x = 0; x < wallpaper_width; x++) {
       png_bytep px = &(row[x * 4]);
-      uint32_t pixel = (px[0] << 16) | (px[1] << 8) | px[2]; // RGB
+      uint32_t pixel = (px[0] << 16) | (px[1] << 8) | px[2];
       image_data[y * wallpaper_width + x] = pixel;
     }
   }
@@ -352,6 +353,197 @@ void setup_ewmh(xcb_connection_t *conn, xcb_screen_t *screen) {
   xcb_flush(conn);
 }
 
+void enable_new_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
+    xcb_randr_get_screen_resources_current_cookie_t res_cookie = xcb_randr_get_screen_resources_current(conn, screen->root);
+    xcb_randr_get_screen_resources_current_reply_t *res_reply = xcb_randr_get_screen_resources_current_reply(conn, res_cookie, NULL);
+  if (!res_reply) {
+    fprintf(stderr, "Failed to get current RandR screen resources\n");
+    fflush(stderr);
+    return;
+  }
+
+  int num_outputs = xcb_randr_get_screen_resources_current_outputs_length(res_reply);
+  xcb_randr_output_t *outputs = xcb_randr_get_screen_resources_current_outputs(res_reply);
+
+  xcb_randr_crtc_t *crtcs = xcb_randr_get_screen_resources_current_crtcs(res_reply);
+  int num_crtcs = xcb_randr_get_screen_resources_current_crtcs_length(res_reply);
+
+  for (int i = 0; i < num_outputs; i++) {
+    xcb_randr_output_t output = outputs[i];
+
+    xcb_randr_get_output_info_cookie_t info_cookie =
+      xcb_randr_get_output_info(conn, output, XCB_CURRENT_TIME);
+    xcb_randr_get_output_info_reply_t *info_reply =
+      xcb_randr_get_output_info_reply(conn, info_cookie, NULL);
+    if (!info_reply)
+      continue;
+
+    if (info_reply->connection == XCB_RANDR_CONNECTION_CONNECTED && info_reply->crtc == XCB_NONE) {
+      int name_len = xcb_randr_get_output_info_name_length(info_reply);
+      char *name = (char *)xcb_randr_get_output_info_name(info_reply);
+      int num_modes = xcb_randr_get_output_info_modes_length(info_reply);
+      xcb_randr_mode_t *modes = xcb_randr_get_output_info_modes(info_reply);
+
+      if (num_modes == 0) {
+        fprintf(stderr, "No modes for output %.*s\n", name_len, name);
+        fflush(stderr);
+        free(info_reply);
+        continue;
+      }
+
+      xcb_randr_mode_t preferred_mode = modes[0];
+      uint16_t rotation = XCB_RANDR_ROTATION_ROTATE_0;
+
+      xcb_randr_crtc_t crtc = XCB_NONE;
+      for (int j = 0; j < num_crtcs; j++) {
+        xcb_randr_crtc_t test_crtc = crtcs[j];
+
+        xcb_randr_get_crtc_info_cookie_t crtc_info_cookie =
+          xcb_randr_get_crtc_info(conn, test_crtc, XCB_CURRENT_TIME);
+        xcb_randr_get_crtc_info_reply_t *crtc_info_reply =
+          xcb_randr_get_crtc_info_reply(conn, crtc_info_cookie, NULL);
+        if (!crtc_info_reply)
+          continue;
+
+        if (crtc_info_reply->num_outputs == 0) {
+          crtc = test_crtc;
+          free(crtc_info_reply);
+          break;
+        }
+        free(crtc_info_reply);
+      }
+
+      if (crtc == XCB_NONE) {
+        fprintf(stderr, "No free CRTC for output %.*s\n", name_len, name);
+        fflush(stderr);
+        free(info_reply);
+        continue;
+      }
+
+      int x = 0, y = 0;
+      for (int k = 0; k < monitor_count; k++) {
+        int right_edge = monitors[k].x + monitors[k].width;
+        if (right_edge > x)
+          x = right_edge;
+      }
+
+      xcb_randr_set_crtc_config_cookie_t set_crtc_cookie = xcb_randr_set_crtc_config(conn, crtc, XCB_CURRENT_TIME, XCB_CURRENT_TIME, x, y, preferred_mode, rotation, 1, &output);
+      xcb_randr_set_crtc_config_reply_t *set_crtc_reply = xcb_randr_set_crtc_config_reply(conn, set_crtc_cookie, NULL);
+
+      if (!set_crtc_reply || set_crtc_reply->status != XCB_RANDR_SET_CONFIG_SUCCESS) {
+        fprintf(stderr, "Failed to set CRTC config for output %.*s\n", name_len, name);
+        fflush(stderr);
+      } else {
+        fprintf(stderr, "Enabled output %.*s at position (%d, %d)\n", name_len, name, x, y);
+        fflush(stderr);
+      }
+
+      if (set_crtc_reply)
+        free(set_crtc_reply);
+    }
+
+    free(info_reply);
+  }
+
+  free(res_reply);
+}
+
+void disable_disconnected_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
+  xcb_randr_get_screen_resources_current_cookie_t res_cookie = xcb_randr_get_screen_resources_current(conn, screen->root);
+  xcb_randr_get_screen_resources_current_reply_t *res_reply = xcb_randr_get_screen_resources_current_reply(conn, res_cookie, NULL);
+  if (!res_reply) {
+    fprintf(stderr, "Failed to get current RandR screen resources\n");
+    fflush(stderr);
+    return;
+  }
+
+  int num_outputs = xcb_randr_get_screen_resources_current_outputs_length(res_reply);
+  xcb_randr_output_t *outputs = xcb_randr_get_screen_resources_current_outputs(res_reply);
+
+  for (int i = 0; i < num_outputs; i++) {
+    xcb_randr_output_t output = outputs[i];
+
+    xcb_randr_get_output_info_cookie_t info_cookie = xcb_randr_get_output_info(conn, output, XCB_CURRENT_TIME);
+    xcb_randr_get_output_info_reply_t *info_reply = xcb_randr_get_output_info_reply(conn, info_cookie, NULL);
+    if (!info_reply)
+      continue;
+
+    int name_len = xcb_randr_get_output_info_name_length(info_reply);
+    char *name = (char *)xcb_randr_get_output_info_name(info_reply);
+
+    if (info_reply->connection != XCB_RANDR_CONNECTION_CONNECTED && info_reply->crtc != XCB_NONE) {
+      xcb_randr_set_crtc_config_cookie_t set_crtc_cookie = xcb_randr_set_crtc_config(conn, info_reply->crtc, XCB_CURRENT_TIME, XCB_CURRENT_TIME, 0, 0, XCB_NONE, XCB_RANDR_ROTATION_ROTATE_0, 0, NULL);
+      xcb_randr_set_crtc_config_reply_t *set_crtc_reply = xcb_randr_set_crtc_config_reply(conn, set_crtc_cookie, NULL);
+
+      if (!set_crtc_reply || set_crtc_reply->status != XCB_RANDR_SET_CONFIG_SUCCESS) {
+        fprintf(stderr, "Failed to disable output %.*s\n", name_len, name);
+        fflush(stderr);
+      } else {
+        fprintf(stderr, "Disabled output %.*s\n", name_len, name);
+        fflush(stderr);
+      }
+
+      if (set_crtc_reply)
+        free(set_crtc_reply);
+    }
+    free(info_reply);
+  }
+  free(res_reply);
+}
+
+void reposition_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
+  xcb_randr_get_screen_resources_current_cookie_t res_cookie = xcb_randr_get_screen_resources_current(conn, screen->root);
+  xcb_randr_get_screen_resources_current_reply_t *res_reply = xcb_randr_get_screen_resources_current_reply(conn, res_cookie, NULL);
+  if (!res_reply) {
+    fprintf(stderr, "Failed to get current RandR screen resources\n");
+    fflush(stderr);
+    return;
+  }
+
+  int num_outputs = xcb_randr_get_screen_resources_current_outputs_length(res_reply);
+  xcb_randr_output_t *outputs = xcb_randr_get_screen_resources_current_outputs(res_reply);
+
+  int x_offset = 0;
+
+  for (int i = 0; i < num_outputs; i++) {
+    xcb_randr_output_t output = outputs[i];
+
+    xcb_randr_get_output_info_cookie_t info_cookie = xcb_randr_get_output_info(conn, output, XCB_CURRENT_TIME);
+    xcb_randr_get_output_info_reply_t *info_reply = xcb_randr_get_output_info_reply(conn, info_cookie, NULL);
+    if (!info_reply)
+      continue;
+
+    if (info_reply->connection == XCB_RANDR_CONNECTION_CONNECTED && info_reply->crtc != XCB_NONE) {
+      xcb_randr_get_crtc_info_cookie_t crtc_info_cookie = xcb_randr_get_crtc_info(conn, info_reply->crtc, XCB_CURRENT_TIME);
+      xcb_randr_get_crtc_info_reply_t *crtc_info_reply = xcb_randr_get_crtc_info_reply(conn, crtc_info_cookie, NULL);
+      if (!crtc_info_reply) {
+        free(info_reply);
+        continue;
+      }
+
+      xcb_randr_set_crtc_config_cookie_t set_crtc_cookie = xcb_randr_set_crtc_config(conn, info_reply->crtc, XCB_CURRENT_TIME, XCB_CURRENT_TIME, x_offset, 0, crtc_info_reply->mode, crtc_info_reply->rotation, 1, &output);
+      xcb_randr_set_crtc_config_reply_t *set_crtc_reply = xcb_randr_set_crtc_config_reply(conn, set_crtc_cookie, NULL);
+      if (!set_crtc_reply || set_crtc_reply->status != XCB_RANDR_SET_CONFIG_SUCCESS) {
+        int name_len = xcb_randr_get_output_info_name_length(info_reply);
+        char *name = (char *)xcb_randr_get_output_info_name(info_reply);
+        fprintf(stderr, "Failed to reposition output %.*s\n", name_len, name);
+      } else {
+        int name_len = xcb_randr_get_output_info_name_length(info_reply);
+        char *name = (char *)xcb_randr_get_output_info_name(info_reply);
+        fprintf(stderr, "Repositioned output %.*s to x=%d\n", name_len, name, x_offset);
+      }
+
+      if (set_crtc_reply)
+        free(set_crtc_reply);
+
+      x_offset += crtc_info_reply->width;
+      free(crtc_info_reply);
+    }
+    free(info_reply);
+  }
+  free(res_reply);
+}
+
 void query_xrandr(xcb_connection_t *conn, xcb_screen_t *screen) {
   xcb_randr_get_screen_resources_cookie_t res_cookie = xcb_randr_get_screen_resources(conn, screen->root);
   xcb_randr_get_screen_resources_reply_t *res_reply = xcb_randr_get_screen_resources_reply(conn, res_cookie, NULL);
@@ -366,39 +558,83 @@ void query_xrandr(xcb_connection_t *conn, xcb_screen_t *screen) {
   int num_crtcs = xcb_randr_get_screen_resources_crtcs_length(res_reply);
   xcb_randr_crtc_t *crtcs = xcb_randr_get_screen_resources_crtcs(res_reply);
 
+  xcb_randr_mode_info_t *modes = xcb_randr_get_screen_resources_modes(res_reply);
+  int num_modes = xcb_randr_get_screen_resources_modes_length(res_reply);
+
   for (int i = 0; i < num_crtcs; i++) {
     xcb_randr_crtc_t crtc = crtcs[i];
     xcb_randr_get_crtc_info_cookie_t crtc_cookie = xcb_randr_get_crtc_info(conn, crtc, XCB_CURRENT_TIME);
     xcb_randr_get_crtc_info_reply_t *crtc_reply = xcb_randr_get_crtc_info_reply(conn, crtc_cookie, NULL);
-    if (crtc_reply && crtc_reply->mode != XCB_NONE && crtc_reply->width > 0 && crtc_reply->height > 0) {
-      if (monitor_count >= MAX_MONITORS) {
-      } else {
+    if (crtc_reply && crtc_reply->mode != XCB_NONE && crtc_reply->width > 0 && crtc_reply->height > 0 && monitor_count < MAX_MONITORS) {
+      monitors[monitor_count].id = i;
+      monitors[monitor_count].x = crtc_reply->x;
+      monitors[monitor_count].y = crtc_reply->y;
+      monitors[monitor_count].width = crtc_reply->width;
+      monitors[monitor_count].height = crtc_reply->height;
 
-        monitors[monitor_count].id = i;
-        monitors[monitor_count].x = crtc_reply->x;
-        monitors[monitor_count].y = crtc_reply->y;
-        monitors[monitor_count].width = crtc_reply->width;
-        monitors[monitor_count].height = crtc_reply->height;
-        monitor_count++;
+      double refresh_rate = 0.0;
+      xcb_randr_mode_info_t *mode_info = NULL;
+      for (int j = 0; j < num_modes; j++) {
+        if (modes[j].id == crtc_reply->mode) {
+          mode_info = &modes[j];
+          break;
+        }
       }
+
+      if (mode_info) {
+        double htotal = mode_info->htotal;
+        double vtotal = mode_info->vtotal;
+        double dot_clock = mode_info->dot_clock;
+
+        if (htotal > 0 && vtotal > 0) {
+          refresh_rate = dot_clock / (htotal * vtotal);
+        }
+      }
+
+      char *rotation_str =
+        (crtc_reply->rotation & XCB_RANDR_ROTATION_ROTATE_0) ? "Normal" :
+        (crtc_reply->rotation & XCB_RANDR_ROTATION_ROTATE_90) ? "Rotated 90" :
+        (crtc_reply->rotation & XCB_RANDR_ROTATION_ROTATE_180) ? "Rotated 180" :
+        (crtc_reply->rotation & XCB_RANDR_ROTATION_ROTATE_270) ? "Rotated 270" :
+        "Unknown";
+
+      fprintf(stderr, "Monitor %d: x=%d, y=%d, width=%d, height=%d, refresh=%.2fHz, rotation=%s\n",
+        monitor_count,
+        monitors[monitor_count].x,
+        monitors[monitor_count].y,
+        monitors[monitor_count].width,
+        monitors[monitor_count].height,
+        refresh_rate,
+        rotation_str
+      );
+      fflush(stderr);
+
+      monitor_count++;
     }
     free(crtc_reply);
   }
   free(res_reply);
 
-  total_width = 0;
-  total_height = 0;
+  real_total_width = 0;
+  real_total_height = 0;
   for (int i = 0; i < monitor_count; i++) {
     int monitor_right = monitors[i].x + monitors[i].width;
     int monitor_bottom = monitors[i].y + monitors[i].height;
-    if (monitor_right > total_width)
-      total_width = monitor_right;
-    if (monitor_bottom > total_height)
-      total_height = monitor_bottom;
+    if (monitor_right > real_total_width)
+      real_total_width = monitor_right;
+    if (monitor_bottom > real_total_height)
+      real_total_height = monitor_bottom;
   }
-  fprintf(stderr, "total %dx%d\n", total_width, total_height);
+  fprintf(stderr, "Total screen size: %dx%d\n", real_total_width, real_total_height);
   fflush(stderr);
 
+  if (real_total_width == 0 || real_total_height == 0) {
+    fprintf(stderr, "Falling back to previous screen size: %dx%d\n", total_width, total_height);
+    fflush(stderr);
+  } else {
+    total_width = real_total_width;
+    total_height = real_total_height;
+  }
 }
 
 int calculate_fullscreen_geometry(int xs[4], int *x1, int *y1, int *x2, int *y2) {
@@ -495,30 +731,44 @@ void adjust_windows_within_bounds(xcb_connection_t *conn, xcb_window_t root) {
 
   for (int i = 0; i < len; i++) {
     xcb_window_t child = children[i];
-    if (child == active_window)
-      continue;
 
-    xcb_get_geometry_reply_t *geom_reply = NULL;
     xcb_get_geometry_cookie_t geom_cookie = xcb_get_geometry(conn, child);
-    geom_reply = xcb_get_geometry_reply(conn, geom_cookie, NULL);
+    xcb_get_geometry_reply_t *geom_reply = xcb_get_geometry_reply(conn, geom_cookie, NULL);
     if (!geom_reply)
       continue;
 
-    int new_x = geom_reply->x;
-    int new_y = geom_reply->y;
+    int window_x = geom_reply->x;
+    int window_y = geom_reply->y;
+    int window_width = geom_reply->width;
+    int window_height = geom_reply->height;
 
-    if (geom_reply->x + geom_reply->width > total_width) {
-      new_x = total_width - geom_reply->width;
-      if (new_x < 0) new_x = 0;
-    }
-    if (geom_reply->y + geom_reply->height > total_height) {
-      new_y = total_height - geom_reply->height;
-      if (new_y < 0) new_y = 0;
+    int window_right = window_x + window_width;
+    int window_bottom = window_y + window_height;
+
+    int on_screen = 0;
+
+    for (int j = 0; j < monitor_count; j++) {
+      int monitor_x = monitors[j].x;
+      int monitor_y = monitors[j].y;
+      int monitor_right = monitor_x + monitors[j].width;
+      int monitor_bottom = monitor_y + monitors[j].height;
+
+      if (window_right > monitor_x && window_x < monitor_right && window_bottom > monitor_y && window_y < monitor_bottom) {
+        on_screen = 1;
+        break;
+      }
     }
 
-    if (new_x != geom_reply->x || new_y != geom_reply->y) {
-      uint32_t values[] = { new_x, new_y };
-      uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y;
+    if (!on_screen) {
+      int new_x = monitors[0].x;
+      int new_y = monitors[0].y;
+      if (window_width > monitors[0].width)
+          window_width = monitors[0].width;
+      if (window_height > monitors[0].height)
+          window_height = monitors[0].height;
+
+      uint32_t values[] = { new_x, new_y, window_width, window_height };
+      uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
       xcb_configure_window(conn, child, mask, values);
     }
 
@@ -526,7 +776,9 @@ void adjust_windows_within_bounds(xcb_connection_t *conn, xcb_window_t root) {
   }
 
   free(tree_reply);
+  xcb_flush(conn);
 }
+
 
 void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *cm, xcb_screen_t *screen) {
   if (cm->type == atom_net_wm_state) {
@@ -737,11 +989,18 @@ void handle_configure_request(xcb_connection_t *conn, xcb_configure_request_even
 }
 
 void handle_randr_event(xcb_connection_t *conn, xcb_randr_screen_change_notify_event_t *event, xcb_screen_t *screen) {
+  disable_disconnected_outputs(conn, screen);
+  enable_new_outputs(conn, screen);
+  reposition_outputs(conn, screen);
   query_xrandr(conn, screen);
-  adjust_windows_within_bounds(conn, screen->root);
 
-  fprintf(stderr, "display fun %d %d %d\n", event->width, event->height, event->rotation);
-  fflush(stderr);
+  if (real_total_width <= 0 || real_total_height <= 0) {
+    fprintf(stderr, "No monitors connected after RandR event, skipping window adjustments.\n");
+    fflush(stderr);
+    return;
+  }
+
+  adjust_windows_within_bounds(conn, screen->root);
 
   for (int i = 0; i < always_on_top_count; i++) {
     uint32_t values[] = { XCB_STACK_MODE_ABOVE };
@@ -810,6 +1069,7 @@ int main() {
   const xcb_query_extension_reply_t *randr_reply = xcb_get_extension_data(conn, &xcb_randr_id);
   if (!randr_reply || !randr_reply->present) {
     fprintf(stderr, "RandR extension is not available.\n");
+    fflush(stderr);
     if (randr_reply)
       free((void*)randr_reply);
     xcb_disconnect(conn);
