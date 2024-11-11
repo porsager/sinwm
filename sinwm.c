@@ -65,9 +65,8 @@ int wallpaper_height = 0;
 
 xcb_pixmap_t load_wallpaper(xcb_connection_t *conn, xcb_screen_t *screen, const char *path) {
   FILE *fp = fopen(path, "rb");
-  if (!fp) {
+  if (!fp)
     return XCB_PIXMAP_NONE;
-  }
 
   png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
   if (!png) {
@@ -139,9 +138,8 @@ xcb_pixmap_t load_wallpaper(xcb_connection_t *conn, xcb_screen_t *screen, const 
   xcb_free_gc(conn, gc);
   xcb_flush(conn);
   free(image_data);
-  for(int y = 0; y < wallpaper_height; y++) {
+  for(int y = 0; y < wallpaper_height; y++)
     free(row_pointers[y]);
-  }
   free(row_pointers);
 
   return pixmap;
@@ -150,7 +148,7 @@ xcb_pixmap_t load_wallpaper(xcb_connection_t *conn, xcb_screen_t *screen, const 
 void set_wallpaper(xcb_connection_t *conn, xcb_screen_t *screen) {
   const char *home = getenv("HOME");
   char path[1024];
-  snprintf(path, sizeof(path), "%s/.config/sinwm/wallpaper.png", home);
+  snprintf(path, sizeof(path), "%s/.sinwm.png", home);
 
   xcb_pixmap_t wallpaper_pixmap = load_wallpaper(conn, screen, path);
   if (wallpaper_pixmap == XCB_PIXMAP_NONE)
