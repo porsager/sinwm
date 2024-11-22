@@ -1,6 +1,7 @@
 #include <xcb/xcb.h>
 #include <xcb/randr.h>
 #include <xcb/xcb_icccm.h>
+#include <xcb/xinput.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,11 +25,17 @@ xcb_atom_t atom_net_wm_state
          , atom_wm_name
          , atom_wm_class
          , atom_wm_protocols
-         , atom_wm_delete_window;
+         , atom_wm_delete_window
+         , atom_coordinate_transformation_matrix
+         , atom_float;
 
 xcb_pixmap_t pixmap = XCB_PIXMAP_NONE;
 xcb_window_t always_on_top_windows[MAX_WINDOWS];
 int always_on_top_count = 0;
+float m0[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+float m90[9] = { 0, -1, 1, 1, 0, 0, 0, 0, 1 };
+float m180[9] = { -1, 0, 1, 0, -1, 1, 0, 0, 1 };
+float m270[9] = { 0, 1, 0, -1, 0, 1, 0, 0, 1 };
 
 typedef struct {
   xcb_window_t window;
@@ -49,6 +56,7 @@ typedef struct {
   int y;
   int width;
   int height;
+  int rotation;
 } monitor_t;
 
 monitor_t monitors[MAX_MONITORS];
@@ -256,7 +264,9 @@ void setup_atoms(xcb_connection_t *conn) {
                           , cookie_wm_name = xcb_intern_atom(conn, 0, strlen("WM_NAME"), "WM_NAME")
                           , cookie_wm_class = xcb_intern_atom(conn, 0, strlen("WM_CLASS"), "WM_CLASS")
                           , cookie_wm_protocols = xcb_intern_atom(conn, 0, strlen("WM_PROTOCOLS"), "WM_PROTOCOLS")
-                          , cookie_wm_delete_window = xcb_intern_atom(conn, 0, strlen("WM_DELETE_WINDOW"), "WM_DELETE_WINDOW");
+                          , cookie_wm_delete_window = xcb_intern_atom(conn, 0, strlen("WM_DELETE_WINDOW"), "WM_DELETE_WINDOW")
+                          , cookie_ctm = xcb_intern_atom(conn, 0, strlen("Coordinate Transformation Matrix"), "Coordinate Transformation Matrix")
+                          , cookie_float = xcb_intern_atom(conn, 0, strlen("FLOAT"), "FLOAT");
 
   xcb_intern_atom_reply_t *reply_wm_state = xcb_intern_atom_reply(conn, cookie_wm_state, NULL)
                         , *reply_wm_state_above = xcb_intern_atom_reply(conn, cookie_wm_state_above, NULL)
@@ -270,7 +280,9 @@ void setup_atoms(xcb_connection_t *conn) {
                         , *reply_wm_name = xcb_intern_atom_reply(conn, cookie_wm_name, NULL)
                         , *reply_wm_class = xcb_intern_atom_reply(conn, cookie_wm_class, NULL)
                         , *reply_wm_protocols = xcb_intern_atom_reply(conn, cookie_wm_protocols, NULL)
-                        , *reply_wm_delete_window = xcb_intern_atom_reply(conn, cookie_wm_delete_window, NULL);
+                        , *reply_wm_delete_window = xcb_intern_atom_reply(conn, cookie_wm_delete_window, NULL)
+                        , *reply_ctm = xcb_intern_atom_reply(conn, cookie_ctm, NULL)
+                        , *reply_float = xcb_intern_atom_reply(conn, cookie_float, NULL);
 
   if (reply_wm_state) { atom_net_wm_state = reply_wm_state->atom; free(reply_wm_state); }
   if (reply_wm_state_above) { atom_net_wm_state_above = reply_wm_state_above->atom; free(reply_wm_state_above); }
@@ -285,6 +297,8 @@ void setup_atoms(xcb_connection_t *conn) {
   if (reply_wm_class) { atom_wm_class = reply_wm_class->atom; free(reply_wm_class); }
   if (reply_wm_protocols) { atom_wm_protocols = reply_wm_protocols->atom; free(reply_wm_protocols); }
   if (reply_wm_delete_window) { atom_wm_delete_window = reply_wm_delete_window->atom; free(reply_wm_delete_window); }
+  if (reply_ctm) { atom_coordinate_transformation_matrix = reply_ctm->atom; free(reply_ctm); }
+  if (reply_float) { atom_float = reply_float->atom; free(reply_float); }
 }
 
 int is_always_on_top(xcb_window_t window) {
@@ -569,6 +583,7 @@ void query_xrandr(xcb_connection_t *conn, xcb_screen_t *screen) {
       monitors[monitor_count].y = crtc_reply->y;
       monitors[monitor_count].width = crtc_reply->width;
       monitors[monitor_count].height = crtc_reply->height;
+      monitors[monitor_count].rotation = crtc_reply->rotation;
 
       double refresh_rate = 0.0;
       xcb_randr_mode_info_t *mode_info = NULL;
@@ -635,6 +650,48 @@ void query_xrandr(xcb_connection_t *conn, xcb_screen_t *screen) {
   }
 }
 
+void set_touch_device_matrix(xcb_connection_t *conn, xcb_input_device_id_t deviceid, monitor_t *monitor) {
+  int r = monitor->rotation;
+  xcb_input_xi_change_property(
+    conn,
+    deviceid,
+    XCB_PROP_MODE_REPLACE,
+    32,
+    atom_coordinate_transformation_matrix,
+    atom_float,
+    9,
+      r == XCB_RANDR_ROTATION_ROTATE_90  ? m90
+    : r == XCB_RANDR_ROTATION_ROTATE_180 ? m180
+    : r == XCB_RANDR_ROTATION_ROTATE_270 ? m270
+    : m0
+  );
+  xcb_flush(conn);
+}
+
+void update_touch_devices(xcb_connection_t *conn) {
+  if (monitor_count == 0)
+    return;
+
+  xcb_input_xi_query_device_cookie_t cookie = xcb_input_xi_query_device(conn, XCB_INPUT_DEVICE_ALL);
+  xcb_input_xi_query_device_reply_t *reply = xcb_input_xi_query_device_reply(conn, cookie, NULL);
+  xcb_input_xi_device_info_iterator_t iter = xcb_input_xi_query_device_infos_iterator(reply);
+
+  while (iter.rem) {
+    xcb_input_device_id_t deviceid = iter.data->deviceid;
+    if (iter.data->type == XCB_INPUT_DEVICE_TYPE_SLAVE_POINTER) {
+      xcb_input_device_class_iterator_t class_iter = xcb_input_xi_device_info_classes_iterator(iter.data);
+      while (class_iter.rem) {
+        xcb_input_device_class_t *device_class = class_iter.data;
+        if (device_class->type == XCB_INPUT_DEVICE_CLASS_TYPE_TOUCH)
+          set_touch_device_matrix(conn, deviceid, &monitors[0]);
+        xcb_input_device_class_next(&class_iter);
+      }
+    }
+    xcb_input_xi_device_info_next(&iter);
+  }
+  free(reply);
+}
+
 int calculate_fullscreen_geometry(int xs[4], int *x1, int *y1, int *x2, int *y2) {
   if (xs[0] == -1 || xs[1] == -1 || xs[2] == -1 || xs[3] == -1) {
     *x1 = 0;
@@ -643,10 +700,7 @@ int calculate_fullscreen_geometry(int xs[4], int *x1, int *y1, int *x2, int *y2)
     *y2 = total_height;
     return 0;
   } else {
-    if (xs[0] >= 0 && xs[0] < monitor_count &&
-        xs[1] >= 0 && xs[1] < monitor_count &&
-        xs[2] >= 0 && xs[2] < monitor_count &&
-        xs[3] >= 0 && xs[3] < monitor_count) {
+    if (xs[0] >= 0 && xs[0] < monitor_count && xs[1] >= 0 && xs[1] < monitor_count && xs[2] >= 0 && xs[2] < monitor_count && xs[3] >= 0 && xs[3] < monitor_count) {
       monitor_t *top_mon = &monitors[xs[0]];
       monitor_t *bottom_mon = &monitors[xs[1]];
       monitor_t *left_mon = &monitors[xs[2]];
@@ -1029,7 +1083,27 @@ void handle_randr_event(xcb_connection_t *conn, xcb_randr_screen_change_notify_e
   xcb_change_window_attributes(conn, screen->root, XCB_CW_BACK_PIXMAP, (uint32_t[]){XCB_NONE});
   xcb_clear_area(conn, 0, screen->root, 0, 0, screen->width_in_pixels, screen->height_in_pixels);
   set_wallpaper(conn, screen);
+  update_touch_devices(conn);
   xcb_flush(conn);
+}
+
+void select_xinput_events(xcb_connection_t *conn, xcb_window_t window) {
+  uint32_t mask = XCB_INPUT_XI_EVENT_MASK_HIERARCHY;
+  xcb_input_event_mask_t *evmask;
+  size_t mask_size = sizeof(uint32_t) * 1;
+  size_t evmask_size = sizeof(xcb_input_event_mask_t) + mask_size;
+  evmask = malloc(evmask_size);
+  evmask->deviceid = XCB_INPUT_DEVICE_ALL;
+  evmask->mask_len = 1;
+  uint32_t *mask_data = (uint32_t *)(evmask + 1);
+  mask_data[0] = mask;
+  xcb_input_xi_select_events(conn, window, 1, evmask);
+  free(evmask);
+}
+
+void handle_xi_hierarchy_event(xcb_connection_t *conn, xcb_input_hierarchy_event_t *event) {
+  if (event->flags & (XCB_INPUT_HIERARCHY_MASK_SLAVE_ADDED | XCB_INPUT_HIERARCHY_MASK_SLAVE_REMOVED | XCB_INPUT_HIERARCHY_MASK_DEVICE_ENABLED))
+    update_touch_devices(conn);
 }
 
 int main() {
@@ -1082,6 +1156,10 @@ int main() {
   xcb_change_window_attributes(conn, screen->root, XCB_CW_CURSOR, cursors);
   xcb_randr_select_input(conn, screen->root, XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE);
 
+  const xcb_query_extension_reply_t *xinput_reply = xcb_get_extension_data(conn, &xcb_input_id);
+  uint8_t xinput_opcode = xinput_reply->major_opcode;
+  select_xinput_events(conn, screen->root);
+
   xcb_flush(conn);
 
   xcb_generic_event_t *event;
@@ -1092,6 +1170,10 @@ int main() {
       uint8_t randr_event = event->response_type - randr_event_base;
       if (randr_event == XCB_RANDR_SCREEN_CHANGE_NOTIFY)
         handle_randr_event(conn, (xcb_randr_screen_change_notify_event_t *)event, screen);
+    } else if (x == XCB_GE_GENERIC) {
+      xcb_ge_generic_event_t *ge = (xcb_ge_generic_event_t *)event;
+      if (ge->extension == xinput_opcode && ge->event_type == XCB_INPUT_HIERARCHY)
+        handle_xi_hierarchy_event(conn, (xcb_input_hierarchy_event_t *)event);
     } else {
       if (x == XCB_MAP_REQUEST) handle_map_request(conn, (xcb_map_request_event_t *)event);
       if (x == XCB_CONFIGURE_REQUEST) handle_configure_request(conn, (xcb_configure_request_event_t *)event);
@@ -1101,7 +1183,6 @@ int main() {
       if (x == XCB_FOCUS_OUT) handle_focus_out(conn, (xcb_focus_out_event_t *)event, screen);
       if (x == XCB_EXPOSE) set_wallpaper(conn, screen);
     }
-
     free(event);
   }
 

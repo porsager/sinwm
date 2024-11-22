@@ -9,7 +9,7 @@ source=("sinwm.c")
 md5sums=('SKIP')
 
 build() {
-  gcc -o "$pkgname" "$srcdir/$pkgname.c" -lxcb -lxcb-icccm -lxcb-randr -lxcb-image -lpng
+  gcc -o "$pkgname" "$srcdir/$pkgname.c" -lxcb -lxcb-xinput -lxcb-icccm -lxcb-randr -lxcb-image -lpng
 }
 
 package() {
