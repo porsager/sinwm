@@ -1,5 +1,5 @@
 pkgname=sinwm
-pkgver=0.0.1
+pkgver=1.0.0
 pkgrel=1
 pkgdesc="Sin Window Manager"
 arch=('x86_64')
