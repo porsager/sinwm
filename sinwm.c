@@ -362,6 +362,7 @@ void setup_ewmh(xcb_connection_t *conn, xcb_screen_t *screen) {
   xcb_atom_t protocols[] = { atom_wm_delete_window };
   xcb_change_property(conn, XCB_PROP_MODE_REPLACE, wm_window, atom_wm_protocols, XCB_ATOM_ATOM, 32, sizeof(protocols)/sizeof(xcb_atom_t), protocols);
 
+  xcb_map_window(conn, wm_window);
   xcb_flush(conn);
 }
 
@@ -870,9 +871,8 @@ void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *c
       }
 
       int is_monitor_fullscreen = (index != -1) ? fs_windows[index].is_monitor_fullscreen : 0;
-      if (is_monitor_fullscreen) {
+      if (is_monitor_fullscreen)
         return;
-      }
 
       if (action == 1) {
         if (index == -1) {
@@ -882,11 +882,28 @@ void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *c
           }
         }
         fs_windows[index].is_general_fullscreen = 1;
-        uint32_t values[] = { 0, 0, screen->width_in_pixels, screen->height_in_pixels };
-        uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
-        xcb_configure_window(conn, cm->window, mask, values);
-        xcb_change_property(conn, XCB_PROP_MODE_REPLACE, cm->window, atom_net_wm_state, XCB_ATOM_ATOM, 32, 1, &atom_net_wm_state_fullscreen);
-        add_to_always_on_top(cm->window);
+        monitor_t *target_monitor = NULL;
+        for (int i = 0; i < monitor_count; i++) {
+          target_monitor = &monitors[i];
+          break;
+        }
+
+        if (target_monitor) {
+          uint32_t x = 0;
+          uint32_t y = 0;
+          uint32_t width = screen->width_in_pixels;
+          uint32_t height = screen->height_in_pixels;
+          if (target_monitor->rotation & (XCB_RANDR_ROTATION_ROTATE_90 | XCB_RANDR_ROTATION_ROTATE_270)) {
+            width = screen->height_in_pixels;
+            height = screen->width_in_pixels;
+          }
+
+          uint32_t values[] = { x, y, width, height };
+          uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+          xcb_configure_window(conn, cm->window, mask, values);
+          xcb_change_property(conn, XCB_PROP_MODE_REPLACE, cm->window, atom_net_wm_state, XCB_ATOM_ATOM, 32, 1, &atom_net_wm_state_fullscreen);
+          add_to_always_on_top(cm->window);
+        }
       } else if (action == 0) {
         remove_fullscreen_window(conn, cm->window);
       }
@@ -894,7 +911,7 @@ void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *c
 
     xcb_flush(conn);
   } else if (cm->type == atom_net_active_window) {
-    xcb_window_t target_window = cm->window;
+    xcb_window_t target_window = cm->data.data32[2];
     if (target_window != XCB_WINDOW_NONE) {
       uint32_t values[] = { XCB_STACK_MODE_ABOVE };
       xcb_configure_window(conn, target_window, XCB_CONFIG_WINDOW_STACK_MODE, values);
@@ -1068,11 +1085,28 @@ void handle_randr_event(xcb_connection_t *conn, xcb_randr_screen_change_notify_e
       if (calculate_fullscreen_geometry(xs, &x1, &y1, &x2, &y2) != 0)
         continue;
 
-      int width = x2 - x1;
-      int height = y2 - y1;
-      uint32_t values[] = { x1, y1, width, height };
-      uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
-      xcb_configure_window(conn, window, mask, values);
+      monitor_t *target_monitor = NULL;
+      for (int m = 0; m < monitor_count; m++) {
+        if (monitors[m].id == xs[0]) {
+          target_monitor = &monitors[m];
+          break;
+        }
+      }
+
+      if (target_monitor) {
+        int width = x2 - x1;
+        int height = y2 - y1;
+
+        if (target_monitor->rotation & (XCB_RANDR_ROTATION_ROTATE_90 | XCB_RANDR_ROTATION_ROTATE_270)) {
+          int temp = width;
+          width = height;
+          height = temp;
+        }
+
+        uint32_t values[] = { x1, y1, width, height };
+        uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+        xcb_configure_window(conn, window, mask, values);
+      }
     } else {
       uint32_t values[] = { 0, 0, total_width, total_height };
       uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
