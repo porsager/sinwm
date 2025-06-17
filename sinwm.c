@@ -504,7 +504,10 @@ void disable_disconnected_outputs(xcb_connection_t *conn, xcb_screen_t *screen) 
   free(res_reply);
 }
 
-void reposition_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
+void reposition_outputs(xcb_connection_t *conn, xcb_screen_t *screen, int force_reposition) {
+  if (!force_reposition)
+    return;
+
   xcb_randr_get_screen_resources_current_cookie_t res_cookie = xcb_randr_get_screen_resources_current(conn, screen->root);
   xcb_randr_get_screen_resources_current_reply_t *res_reply = xcb_randr_get_screen_resources_current_reply(conn, res_cookie, NULL);
   if (!res_reply) {
@@ -1056,10 +1059,13 @@ void handle_configure_request(xcb_connection_t *conn, xcb_configure_request_even
   xcb_flush(conn);
 }
 
-void handle_randr_event(xcb_connection_t *conn, xcb_randr_screen_change_notify_event_t *event, xcb_screen_t *screen) {
+void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_screen_t *screen) {
+  int is_screen_change = (event->response_type & ~0x80) == XCB_RANDR_SCREEN_CHANGE_NOTIFY;
+  int force_reposition = is_screen_change;
+
   disable_disconnected_outputs(conn, screen);
   enable_new_outputs(conn, screen);
-  reposition_outputs(conn, screen);
+  reposition_outputs(conn, screen, force_reposition);
   query_xrandr(conn, screen);
 
   if (real_total_width <= 0 || real_total_height <= 0) {
@@ -1188,12 +1194,11 @@ int main() {
   }
 
   uint8_t randr_event_base = randr_reply->first_event;
-  uint8_t randr_error_base = randr_reply->first_error;
 
   xcb_cursor_t blank_cursor = create_blank_cursor(conn, screen);
   uint32_t cursors[] = {blank_cursor};
   xcb_change_window_attributes(conn, screen->root, XCB_CW_CURSOR, cursors);
-  xcb_randr_select_input(conn, screen->root, XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE);
+  xcb_randr_select_input(conn, screen->root, XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE | XCB_RANDR_NOTIFY_MASK_CRTC_CHANGE);
 
   const xcb_query_extension_reply_t *xinput_reply = xcb_get_extension_data(conn, &xcb_input_id);
   uint8_t xinput_opcode = xinput_reply->major_opcode;
@@ -1207,8 +1212,8 @@ int main() {
 
     if (event->response_type >= randr_event_base && event->response_type < randr_event_base + 2) {
       uint8_t randr_event = event->response_type - randr_event_base;
-      if (randr_event == XCB_RANDR_SCREEN_CHANGE_NOTIFY)
-        handle_randr_event(conn, (xcb_randr_screen_change_notify_event_t *)event, screen);
+      if (randr_event == XCB_RANDR_SCREEN_CHANGE_NOTIFY || randr_event == XCB_RANDR_NOTIFY)
+        handle_randr_event(conn, event, screen);
     } else if (x == XCB_GE_GENERIC) {
       xcb_ge_generic_event_t *ge = (xcb_ge_generic_event_t *)event;
       if (ge->extension == xinput_opcode && ge->event_type == XCB_INPUT_HIERARCHY)
