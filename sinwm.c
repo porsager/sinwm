@@ -367,8 +367,8 @@ void setup_ewmh(xcb_connection_t *conn, xcb_screen_t *screen) {
 }
 
 void enable_new_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
-    xcb_randr_get_screen_resources_current_cookie_t res_cookie = xcb_randr_get_screen_resources_current(conn, screen->root);
-    xcb_randr_get_screen_resources_current_reply_t *res_reply = xcb_randr_get_screen_resources_current_reply(conn, res_cookie, NULL);
+  xcb_randr_get_screen_resources_current_cookie_t res_cookie = xcb_randr_get_screen_resources_current(conn, screen->root);
+  xcb_randr_get_screen_resources_current_reply_t *res_reply = xcb_randr_get_screen_resources_current_reply(conn, res_cookie, NULL);
   if (!res_reply) {
     fprintf(stderr, "Failed to get current RandR screen resources\n");
     fflush(stderr);
@@ -1061,7 +1061,7 @@ void handle_configure_request(xcb_connection_t *conn, xcb_configure_request_even
 
 void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_screen_t *screen) {
   int is_screen_change = (event->response_type & ~0x80) == XCB_RANDR_SCREEN_CHANGE_NOTIFY;
-  int force_reposition = is_screen_change;
+  int force_reposition = is_screen_change && monitor_count == 0;
 
   disable_disconnected_outputs(conn, screen);
   enable_new_outputs(conn, screen);
