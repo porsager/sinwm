@@ -884,21 +884,28 @@ void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *c
           }
         }
         fs_windows[index].is_general_fullscreen = 1;
+
+        xcb_get_geometry_cookie_t geom_cookie = xcb_get_geometry(conn, cm->window);
+        xcb_get_geometry_reply_t *geom_reply = xcb_get_geometry_reply(conn, geom_cookie, NULL);
         monitor_t *target_monitor = NULL;
-        for (int i = 0; i < monitor_count; i++) {
-          target_monitor = &monitors[i];
-          break;
+        if (geom_reply) {
+          for (int i = 0; i < monitor_count; i++) {
+            if (geom_reply->x >= monitors[i].x && geom_reply->x < monitors[i].x + monitors[i].width &&
+                geom_reply->y >= monitors[i].y && geom_reply->y < monitors[i].y + monitors[i].height) {
+              target_monitor = &monitors[i];
+              break;
+            }
+          }
+          free(geom_reply);
         }
+        if (!target_monitor && monitor_count > 0)
+          target_monitor = &monitors[0];
 
         if (target_monitor) {
-          uint32_t x = 0;
-          uint32_t y = 0;
-          uint32_t width = screen->width_in_pixels;
-          uint32_t height = screen->height_in_pixels;
-          if (target_monitor->rotation & (XCB_RANDR_ROTATION_ROTATE_90 | XCB_RANDR_ROTATION_ROTATE_270)) {
-            width = screen->height_in_pixels;
-            height = screen->width_in_pixels;
-          }
+          uint32_t x = target_monitor->x;
+          uint32_t y = target_monitor->y;
+          uint32_t width = target_monitor->width;
+          uint32_t height = target_monitor->height;
 
           uint32_t values[] = { x, y, width, height };
           uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
