@@ -604,8 +604,8 @@ void reposition_outputs(xcb_connection_t *conn, xcb_screen_t *screen, int force_
 }
 
 void query_xrandr(xcb_connection_t *conn, xcb_screen_t *screen) {
-  xcb_randr_get_screen_resources_cookie_t res_cookie = xcb_randr_get_screen_resources(conn, screen->root);
-  xcb_randr_get_screen_resources_reply_t *res_reply = xcb_randr_get_screen_resources_reply(conn, res_cookie, NULL);
+  xcb_randr_get_screen_resources_current_cookie_t res_cookie = xcb_randr_get_screen_resources_current(conn, screen->root);
+  xcb_randr_get_screen_resources_current_reply_t *res_reply = xcb_randr_get_screen_resources_current_reply(conn, res_cookie, NULL);
   if (!res_reply) {
     fprintf(stderr, "Failed to get RandR screen resources\n");
     fflush(stderr);
@@ -614,11 +614,11 @@ void query_xrandr(xcb_connection_t *conn, xcb_screen_t *screen) {
 
   monitor_count = 0;
 
-  int num_crtcs = xcb_randr_get_screen_resources_crtcs_length(res_reply);
-  xcb_randr_crtc_t *crtcs = xcb_randr_get_screen_resources_crtcs(res_reply);
+  int num_crtcs = xcb_randr_get_screen_resources_current_crtcs_length(res_reply);
+  xcb_randr_crtc_t *crtcs = xcb_randr_get_screen_resources_current_crtcs(res_reply);
 
-  xcb_randr_mode_info_t *modes = xcb_randr_get_screen_resources_modes(res_reply);
-  int num_modes = xcb_randr_get_screen_resources_modes_length(res_reply);
+  xcb_randr_mode_info_t *modes = xcb_randr_get_screen_resources_current_modes(res_reply);
+  int num_modes = xcb_randr_get_screen_resources_current_modes_length(res_reply);
 
   for (int i = 0; i < num_crtcs; i++) {
     xcb_randr_crtc_t crtc = crtcs[i];
