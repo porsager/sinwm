@@ -1270,6 +1270,12 @@ int main() {
   xcb_change_window_attributes(conn, screen->root, XCB_CW_CURSOR, cursors);
   
   const xcb_query_extension_reply_t *xinput_reply = xcb_get_extension_data(conn, &xcb_input_id);
+  if (!xinput_reply || !xinput_reply->present) {
+    fprintf(stderr, "XInput extension is not available.\n");
+    fflush(stderr);
+    xcb_disconnect(conn);
+    return -1;
+  }
   uint8_t xinput_opcode = xinput_reply->major_opcode;
   select_xinput_events(conn, screen->root);
 
