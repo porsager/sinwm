@@ -939,7 +939,7 @@ void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *c
       if (is_monitor_fullscreen)
         return;
 
-      if (action == 1) {
+      if (action == 1 || (action == 2 && index == -1)) {
         if (index == -1) {
           index = add_fullscreen_window(conn, cm->window);
           if (index == -1) {
@@ -977,8 +977,10 @@ void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *c
           xcb_change_property(conn, XCB_PROP_MODE_REPLACE, cm->window, atom_net_wm_state, XCB_ATOM_ATOM, 32, 1, &atom_net_wm_state_fullscreen);
           add_to_always_on_top(cm->window);
         }
-      } else if (action == 0) {
-        remove_fullscreen_window(conn, cm->window);
+      } else if (action == 0 || (action == 2 && index != -1)) {
+        xcb_delete_property(conn, cm->window, atom_net_wm_state);
+        if (index != -1)
+          remove_fullscreen_window(conn, cm->window);
       }
     }
 
