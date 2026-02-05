@@ -1145,12 +1145,6 @@ void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_
         int width = x2 - x1;
         int height = y2 - y1;
 
-        if (target_monitor->rotation & (XCB_RANDR_ROTATION_ROTATE_90 | XCB_RANDR_ROTATION_ROTATE_270)) {
-          int temp = width;
-          width = height;
-          height = temp;
-        }
-
         uint32_t values[] = { x1, y1, width, height };
         uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
         xcb_configure_window(conn, window, mask, values);
