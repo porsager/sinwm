@@ -857,6 +857,15 @@ void adjust_windows_within_bounds(xcb_connection_t *conn, xcb_window_t root) {
     if (!geom_reply)
       continue;
 
+    xcb_get_window_attributes_reply_t *attr = xcb_get_window_attributes_reply(conn, xcb_get_window_attributes(conn, child), NULL);
+    
+    if (!attr || attr->override_redirect) {
+      free(attr);
+      free(geom_reply);
+      continue;
+    }
+    free(attr);
+    
     int window_x = geom_reply->x;
     int window_y = geom_reply->y;
     int window_width = geom_reply->width;
