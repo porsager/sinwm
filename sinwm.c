@@ -1221,17 +1221,22 @@ void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_
         uint32_t values[] = { x1, y1, width, height };
         uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
         xcb_configure_window(conn, window, mask, values);
+        uint32_t stack[] = { XCB_STACK_MODE_ABOVE };
+        xcb_configure_window(conn, window, XCB_CONFIG_WINDOW_STACK_MODE, stack);
         send_configure_notify(conn, window, x1, y1, width, height);
       }
     } else {
       uint32_t values[] = { 0, 0, total_width, total_height };
       uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
       xcb_configure_window(conn, window, mask, values);
+      uint32_t stack[] = { XCB_STACK_MODE_ABOVE };
+      xcb_configure_window(conn, window, XCB_CONFIG_WINDOW_STACK_MODE, stack);
       send_configure_notify(conn, window, 0, 0, total_width, total_height);
     }
   }
 
-  xcb_change_window_attributes(conn, screen->root, XCB_CW_BACK_PIXMAP, (uint32_t[]){XCB_NONE});
+  uint32_t none = XCB_NONE;
+  xcb_change_window_attributes(conn, screen->root, XCB_CW_BACK_PIXMAP, &none);
   xcb_clear_area(conn, 0, screen->root, 0, 0, real_total_width, real_total_height);
   set_wallpaper(conn, screen);
   update_touch_devices(conn);
