@@ -1210,6 +1210,13 @@ int main() {
     return -1;
   }
 
+  const xcb_query_extension_reply_t *randr_reply = xcb_get_extension_data(conn, &xcb_randr_id);
+  if (!randr_reply || !randr_reply->present) {
+    fprintf(stderr, "RandR extension is not available.\n");
+    fflush(stderr);
+    xcb_disconnect(conn);
+    return -1;
+  }
   xcb_randr_select_input(conn, screen->root, XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE | XCB_RANDR_NOTIFY_MASK_CRTC_CHANGE | XCB_RANDR_NOTIFY_MASK_OUTPUT_CHANGE);
   xcb_flush(conn);
   
@@ -1227,16 +1234,6 @@ int main() {
   query_xrandr(conn, screen);
 
   set_wallpaper(conn, screen);
-
-  const xcb_query_extension_reply_t *randr_reply = xcb_get_extension_data(conn, &xcb_randr_id);
-  if (!randr_reply || !randr_reply->present) {
-    fprintf(stderr, "RandR extension is not available.\n");
-    fflush(stderr);
-    if (randr_reply)
-      free((void*)randr_reply);
-    xcb_disconnect(conn);
-    return -1;
-  }
 
   uint8_t randr_event_base = randr_reply->first_event;
 
