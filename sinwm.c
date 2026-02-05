@@ -625,7 +625,7 @@ void query_xrandr(xcb_connection_t *conn, xcb_screen_t *screen) {
     xcb_randr_get_crtc_info_cookie_t crtc_cookie = xcb_randr_get_crtc_info(conn, crtc, XCB_CURRENT_TIME);
     xcb_randr_get_crtc_info_reply_t *crtc_reply = xcb_randr_get_crtc_info_reply(conn, crtc_cookie, NULL);
     if (crtc_reply && crtc_reply->mode != XCB_NONE && crtc_reply->width > 0 && crtc_reply->height > 0 && monitor_count < MAX_MONITORS) {
-      monitors[monitor_count].id = i;
+      monitors[monitor_count].id = crtc;
       monitors[monitor_count].x = crtc_reply->x;
       monitors[monitor_count].y = crtc_reply->y;
       monitors[monitor_count].width = crtc_reply->width;
