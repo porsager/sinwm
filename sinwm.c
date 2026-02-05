@@ -1210,6 +1210,9 @@ int main() {
     return -1;
   }
 
+  xcb_randr_select_input(conn, screen->root, XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE | XCB_RANDR_NOTIFY_MASK_CRTC_CHANGE | XCB_RANDR_NOTIFY_MASK_OUTPUT_CHANGE);
+  xcb_flush(conn);
+  
   setup_atoms(conn);
   setup_ewmh(conn, screen);
   query_xrandr(conn, screen);
@@ -1231,8 +1234,7 @@ int main() {
   xcb_cursor_t blank_cursor = create_blank_cursor(conn, screen);
   uint32_t cursors[] = {blank_cursor};
   xcb_change_window_attributes(conn, screen->root, XCB_CW_CURSOR, cursors);
-  xcb_randr_select_input(conn, screen->root, XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE | XCB_RANDR_NOTIFY_MASK_CRTC_CHANGE);
-
+  
   const xcb_query_extension_reply_t *xinput_reply = xcb_get_extension_data(conn, &xcb_input_id);
   uint8_t xinput_opcode = xinput_reply->major_opcode;
   select_xinput_events(conn, screen->root);
