@@ -1305,8 +1305,14 @@ int main() {
   xcb_generic_event_t *ev;
   while ((ev = xcb_poll_for_event(conn))) {
     uint8_t type = ev->response_type & ~0x80;
-    if (type == randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY || type == randr_event_base + XCB_RANDR_NOTIFY)
+    if (type == randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY) {
       handle_randr_event(conn, ev, screen, randr_event_base);
+    } else if (type == randr_event_base + XCB_RANDR_NOTIFY) {
+      xcb_randr_notify_event_t *re = (xcb_randr_notify_event_t *)ev;
+      if (re->subCode == XCB_RANDR_NOTIFY_CRTC_CHANGE || re->subCode == XCB_RANDR_NOTIFY_OUTPUT_CHANGE || re->subCode == XCB_RANDR_NOTIFY_OUTPUT_PROPERTY) {
+        handle_randr_event(conn, ev, screen, randr_event_base);
+      }
+    }
     free(ev);
   }
   
@@ -1338,8 +1344,14 @@ int main() {
   xcb_generic_event_t *event;
   while ((event = xcb_wait_for_event(conn))) {
     uint8_t type = event->response_type & ~0x80;
-    if (type == randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY || type == randr_event_base + XCB_RANDR_NOTIFY) {
+    
+    if (type == randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY) {
       handle_randr_event(conn, event, screen, randr_event_base);
+    } else if (type == randr_event_base + XCB_RANDR_NOTIFY) {
+      xcb_randr_notify_event_t *re = (xcb_randr_notify_event_t *)event;
+      if (re->subCode == XCB_RANDR_NOTIFY_CRTC_CHANGE || re->subCode == XCB_RANDR_NOTIFY_OUTPUT_CHANGE || re->subCode == XCB_RANDR_NOTIFY_OUTPUT_PROPERTY) {
+        handle_randr_event(conn, event, screen, randr_event_base);
+      }
     } else if (type == XCB_GE_GENERIC) {
       xcb_ge_generic_event_t *ge = (xcb_ge_generic_event_t *)event;
       if (ge->extension == xinput_opcode && ge->event_type == XCB_INPUT_HIERARCHY)
