@@ -136,12 +136,13 @@ xcb_pixmap_t load_wallpaper(xcb_connection_t *conn, xcb_screen_t *screen, const 
     png_bytep row = row_pointers[y];
     for(int x = 0; x < wallpaper_width; x++) {
       png_bytep px = &(row[x * 4]);
-      uint32_t pixel = (px[0] << 16) | (px[1] << 8) | px[2];
+      
+      uint32_t pixel = (0xFF << 24) | (px[0] << 16) | (px[1] << 8) | px[2];
       image_data[y * wallpaper_width + x] = pixel;
     }
   }
 
-  xcb_put_image(conn, XCB_IMAGE_FORMAT_Z_PIXMAP, pixmap, gc, wallpaper_width, wallpaper_height, 0, 0, 0, screen->root_depth, wallpaper_width * wallpaper_height * 4, (const char*)image_data);
+  xcb_put_image(conn, XCB_IMAGE_FORMAT_Z_PIXMAP, pixmap, gc, wallpaper_width, wallpaper_height, 0, 0, 0, screen->root_depth, wallpaper_width * wallpaper_height * 4, (const uint8_t *)image_data);
 
   xcb_free_gc(conn, gc);
   xcb_flush(conn);
