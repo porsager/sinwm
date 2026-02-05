@@ -592,10 +592,12 @@ void reposition_outputs(xcb_connection_t *conn, xcb_screen_t *screen, int force_
         fprintf(stderr, "Repositioned output %.*s to x=%d\n", name_len, name, x_offset);
       }
 
+      if (set_crtc_reply && set_crtc_reply->status == XCB_RANDR_SET_CONFIG_SUCCESS)
+        x_offset += crtc_info_reply->width;
+      
       if (set_crtc_reply)
         free(set_crtc_reply);
 
-      x_offset += crtc_info_reply->width;
       free(crtc_info_reply);
     }
     free(info_reply);
