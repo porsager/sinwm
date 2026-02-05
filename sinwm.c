@@ -592,7 +592,9 @@ void reposition_outputs(xcb_connection_t *conn, xcb_screen_t *screen, int force_
         free(info_reply);
         continue;
       }
-      xcb_randr_set_crtc_config_cookie_t set_crtc_cookie = xcb_randr_set_crtc_config(conn, info_reply->crtc, XCB_CURRENT_TIME, XCB_CURRENT_TIME, x_offset, 0, mode, crtc_info_reply->rotation, 1, &output);
+
+      int y = crtc_info_reply->y;
+      xcb_randr_set_crtc_config_cookie_t set_crtc_cookie = xcb_randr_set_crtc_config(conn, info_reply->crtc, XCB_CURRENT_TIME, XCB_CURRENT_TIME, x_offset, y, mode, crtc_info_reply->rotation, 1, &output);
       xcb_randr_set_crtc_config_reply_t *set_crtc_reply = xcb_randr_set_crtc_config_reply(conn, set_crtc_cookie, NULL);
       if (!set_crtc_reply || set_crtc_reply->status != XCB_RANDR_SET_CONFIG_SUCCESS) {
         int name_len = xcb_randr_get_output_info_name_length(info_reply);
