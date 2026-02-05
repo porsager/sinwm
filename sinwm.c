@@ -806,6 +806,29 @@ int add_fullscreen_window(xcb_connection_t *conn, xcb_window_t window) {
   return fullscreen_count - 1;
 }
 
+void remove_net_wm_state_atom(xcb_connection_t *conn, xcb_window_t win, xcb_atom_t remove_atom) {
+  xcb_get_property_cookie_t c = xcb_get_property(conn, 0, win, atom_net_wm_state, XCB_ATOM_ATOM, 0, 32);
+  xcb_get_property_reply_t *r = xcb_get_property_reply(conn, c, NULL);
+  if (!r) return;
+
+  int n = xcb_get_property_value_length(r) / sizeof(xcb_atom_t);
+  xcb_atom_t *atoms = (xcb_atom_t *)xcb_get_property_value(r);
+
+  xcb_atom_t out[32];
+  int out_n = 0;
+  for (int i = 0; i < n && out_n < 32; i++) {
+    if (atoms[i] != remove_atom)
+      out[out_n++] = atoms[i];
+  }
+
+  if (out_n == 0)
+    xcb_delete_property(conn, win, atom_net_wm_state);
+  else
+    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, win, atom_net_wm_state, XCB_ATOM_ATOM, 32, out_n, out);
+
+  free(r);
+}
+
 void remove_fullscreen_window(xcb_connection_t *conn, xcb_window_t window) {
   int index = -1;
   for (int i = 0; i < fullscreen_count; i++) {
@@ -815,7 +838,7 @@ void remove_fullscreen_window(xcb_connection_t *conn, xcb_window_t window) {
     }
   }
   if (index != -1) {
-    xcb_delete_property(conn, window, atom_net_wm_state);
+    remove_net_wm_state_atom(conn, window, atom_net_wm_state_fullscreen);
     uint32_t values[] = {
       fs_windows[index].original_geometry.x,
       fs_windows[index].original_geometry.y,
@@ -989,7 +1012,6 @@ void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *c
           add_to_always_on_top(cm->window);
         }
       } else if (action == 0 || (action == 2 && index != -1)) {
-        xcb_delete_property(conn, cm->window, atom_net_wm_state);
         if (index != -1)
           remove_fullscreen_window(conn, cm->window);
       }
