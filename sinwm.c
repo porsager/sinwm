@@ -818,6 +818,32 @@ int add_fullscreen_window(xcb_connection_t *conn, xcb_window_t window) {
   return fullscreen_count - 1;
 }
 
+void add_net_wm_state_atom(xcb_connection_t *conn, xcb_window_t win, xcb_atom_t add_atom) {
+  xcb_get_property_cookie_t c = xcb_get_property(conn, 0, win, atom_net_wm_state, XCB_ATOM_ATOM, 0, 32);
+  xcb_get_property_reply_t *r = xcb_get_property_reply(conn, c, NULL);
+
+  xcb_atom_t out[32];
+  int out_n = 0;
+  int found = 0;
+
+  if (r) {
+    int n = xcb_get_property_value_length(r) / sizeof(xcb_atom_t);
+    xcb_atom_t *atoms = (xcb_atom_t *)xcb_get_property_value(r);
+
+    for (int i = 0; i < n && out_n < 32; i++) {
+      out[out_n++] = atoms[i];
+      if (atoms[i] == add_atom)
+        found = 1;
+    }
+    free(r);
+  }
+
+  if (!found && out_n < 32)
+    out[out_n++] = add_atom;
+
+  xcb_change_property(conn, XCB_PROP_MODE_REPLACE, win, atom_net_wm_state, XCB_ATOM_ATOM, 32, out_n, out);
+}
+
 void remove_net_wm_state_atom(xcb_connection_t *conn, xcb_window_t win, xcb_atom_t remove_atom) {
   xcb_get_property_cookie_t c = xcb_get_property(conn, 0, win, atom_net_wm_state, XCB_ATOM_ATOM, 0, 32);
   xcb_get_property_reply_t *r = xcb_get_property_reply(conn, c, NULL);
@@ -1023,7 +1049,7 @@ void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *c
           uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
           xcb_configure_window(conn, cm->window, mask, values);
           send_configure_notify(conn, cm->window, (int)x, (int)y, (int)width, (int)height);
-          xcb_change_property(conn, XCB_PROP_MODE_REPLACE, cm->window, atom_net_wm_state, XCB_ATOM_ATOM, 32, 1, &atom_net_wm_state_fullscreen);
+          add_net_wm_state_atom(conn, cm->window, atom_net_wm_state_fullscreen);
           add_to_always_on_top(cm->window);
         }
       } else if (action == 0 || (action == 2 && index != -1)) {
@@ -1055,7 +1081,7 @@ void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *c
     uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
     xcb_configure_window(conn, cm->window, mask, values);
     send_configure_notify(conn, cm->window, x1, y1, x2 - x1, y2 - y1);
-    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, cm->window, atom_net_wm_state, XCB_ATOM_ATOM, 32, 1, &atom_net_wm_state_fullscreen);
+    add_net_wm_state_atom(conn, cm->window, atom_net_wm_state_fullscreen);
 
     int index = -1;
     for (int i = 0; i < fullscreen_count; i++) {
