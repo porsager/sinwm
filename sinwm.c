@@ -1122,8 +1122,9 @@ void handle_configure_request(xcb_connection_t *conn, xcb_configure_request_even
   xcb_flush(conn);
 }
 
-void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_screen_t *screen) {
-  int is_screen_change = (event->response_type & ~0x80) == XCB_RANDR_SCREEN_CHANGE_NOTIFY;
+void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_screen_t *screen, uint8_t randr_event_base) {
+  uint8_t type = event->response_type & ~0x80;
+  int is_screen_change = type == randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY;
   int force_reposition = is_screen_change && monitor_count == 0;
 
   disable_disconnected_outputs(conn, screen);
@@ -1243,6 +1244,7 @@ int main() {
     xcb_disconnect(conn);
     return -1;
   }
+  uint8_t randr_event_base = randr_reply->first_event;
   xcb_randr_select_input(conn, screen->root, XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE | XCB_RANDR_NOTIFY_MASK_CRTC_CHANGE | XCB_RANDR_NOTIFY_MASK_OUTPUT_CHANGE);
   xcb_flush(conn);
   
@@ -1252,16 +1254,14 @@ int main() {
   xcb_generic_event_t *ev;
   while ((ev = xcb_poll_for_event(conn))) {
     uint8_t type = ev->response_type & ~0x80;
-    if (type == XCB_RANDR_SCREEN_CHANGE_NOTIFY || type == XCB_RANDR_NOTIFY)
-      handle_randr_event(conn, ev, screen);
+    if (type == randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY || type == randr_event_base + XCB_RANDR_NOTIFY)
+      handle_randr_event(conn, ev, screen, randr_event_base);
     free(ev);
   }
   
   query_xrandr(conn, screen);
 
   set_wallpaper(conn, screen);
-
-  uint8_t randr_event_base = randr_reply->first_event;
 
   xcb_cursor_t blank_cursor = create_blank_cursor(conn, screen);
   uint32_t cursors[] = {blank_cursor};
@@ -1275,24 +1275,21 @@ int main() {
 
   xcb_generic_event_t *event;
   while ((event = xcb_wait_for_event(conn))) {
-    uint8_t x = event->response_type & ~0x80;
-
-    if (event->response_type >= randr_event_base && event->response_type < randr_event_base + 2) {
-      uint8_t randr_event = event->response_type - randr_event_base;
-      if (randr_event == XCB_RANDR_SCREEN_CHANGE_NOTIFY || randr_event == XCB_RANDR_NOTIFY)
-        handle_randr_event(conn, event, screen);
-    } else if (x == XCB_GE_GENERIC) {
+    uint8_t type = event->response_type & ~0x80;
+    if (type == randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY || type == randr_event_base + XCB_RANDR_NOTIFY) {
+      handle_randr_event(conn, event, screen, randr_event_base);
+    } else if (type == XCB_GE_GENERIC) {
       xcb_ge_generic_event_t *ge = (xcb_ge_generic_event_t *)event;
       if (ge->extension == xinput_opcode && ge->event_type == XCB_INPUT_HIERARCHY)
         handle_xi_hierarchy_event(conn, (xcb_input_hierarchy_event_t *)event);
     } else {
-      if (x == XCB_MAP_REQUEST) handle_map_request(conn, (xcb_map_request_event_t *)event);
-      if (x == XCB_CONFIGURE_REQUEST) handle_configure_request(conn, (xcb_configure_request_event_t *)event);
-      if (x == XCB_CLIENT_MESSAGE) handle_client_message(conn, (xcb_client_message_event_t *)event, screen);
-      if (x == XCB_DESTROY_NOTIFY) handle_destroy_notify(conn, (xcb_destroy_notify_event_t *)event, screen);
-      if (x == XCB_FOCUS_IN) handle_focus_in(conn, (xcb_focus_in_event_t *)event);
-      if (x == XCB_FOCUS_OUT) handle_focus_out(conn, (xcb_focus_out_event_t *)event, screen);
-      if (x == XCB_EXPOSE) set_wallpaper(conn, screen);
+      if (type == XCB_MAP_REQUEST) handle_map_request(conn, (xcb_map_request_event_t *)event);
+      if (type == XCB_CONFIGURE_REQUEST) handle_configure_request(conn, (xcb_configure_request_event_t *)event);
+      if (type == XCB_CLIENT_MESSAGE) handle_client_message(conn, (xcb_client_message_event_t *)event, screen);
+      if (type == XCB_DESTROY_NOTIFY) handle_destroy_notify(conn, (xcb_destroy_notify_event_t *)event, screen);
+      if (type == XCB_FOCUS_IN) handle_focus_in(conn, (xcb_focus_in_event_t *)event);
+      if (type == XCB_FOCUS_OUT) handle_focus_out(conn, (xcb_focus_out_event_t *)event, screen);
+      if (type == XCB_EXPOSE) set_wallpaper(conn, screen);
     }
     free(event);
   }
