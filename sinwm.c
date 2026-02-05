@@ -1183,7 +1183,7 @@ void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_
   }
 
   xcb_change_window_attributes(conn, screen->root, XCB_CW_BACK_PIXMAP, (uint32_t[]){XCB_NONE});
-  xcb_clear_area(conn, 0, screen->root, 0, 0, screen->width_in_pixels, screen->height_in_pixels);
+  xcb_clear_area(conn, 0, screen->root, 0, 0, real_total_width, real_total_height);
   set_wallpaper(conn, screen);
   update_touch_devices(conn);
   xcb_flush(conn);
