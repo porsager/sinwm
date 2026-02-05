@@ -385,6 +385,23 @@ void send_configure_notify(xcb_connection_t *conn, xcb_window_t window, int x, i
   xcb_flush(conn);
 }
 
+static xcb_randr_mode_t choose_output_mode(xcb_connection_t *conn, xcb_randr_output_t output, xcb_randr_get_output_info_reply_t *info) {
+  xcb_randr_mode_t mode = XCB_NONE;
+  if (info->crtc != XCB_NONE) {
+    xcb_randr_get_crtc_info_reply_t *crtc = xcb_randr_get_crtc_info_reply(conn, xcb_randr_get_crtc_info(conn, info->crtc, XCB_CURRENT_TIME), NULL);
+    if (crtc && crtc->mode != XCB_NONE)
+      mode = crtc->mode;
+    free(crtc);
+  }
+
+  int num_modes = xcb_randr_get_output_info_modes_length(info);
+  xcb_randr_mode_t *modes = xcb_randr_get_output_info_modes(info);
+  if (mode == XCB_NONE && num_modes > 0)
+    mode = modes[0];
+  
+  return mode;
+}
+
 void enable_new_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
   xcb_randr_get_screen_resources_current_cookie_t res_cookie = xcb_randr_get_screen_resources_current(conn, screen->root);
   xcb_randr_get_screen_resources_current_reply_t *res_reply = xcb_randr_get_screen_resources_current_reply(conn, res_cookie, NULL);
@@ -423,7 +440,6 @@ void enable_new_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
         continue;
       }
 
-      xcb_randr_mode_t preferred_mode = modes[0];
       uint16_t rotation = XCB_RANDR_ROTATION_ROTATE_0;
 
       xcb_randr_crtc_t crtc = XCB_NONE;
@@ -459,6 +475,14 @@ void enable_new_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
           x = right_edge;
       }
 
+      xcb_randr_mode_t preferred_mode = choose_output_mode(conn, output, info_reply);
+      if (preferred_mode == XCB_NONE) {
+        fprintf(stderr,
+          "No usable mode for output %.*s\n",
+          name_len, name);
+        free(info_reply);
+        continue;
+      }
       xcb_randr_set_crtc_config_cookie_t set_crtc_cookie = xcb_randr_set_crtc_config(conn, crtc, XCB_CURRENT_TIME, XCB_CURRENT_TIME, x, y, preferred_mode, rotation, 1, &output);
       xcb_randr_set_crtc_config_reply_t *set_crtc_reply = xcb_randr_set_crtc_config_reply(conn, set_crtc_cookie, NULL);
 
