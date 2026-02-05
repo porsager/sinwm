@@ -366,6 +366,25 @@ void setup_ewmh(xcb_connection_t *conn, xcb_screen_t *screen) {
   xcb_flush(conn);
 }
 
+void send_configure_notify(xcb_connection_t *conn, xcb_window_t window, int x, int y, int width, int height) {
+  xcb_configure_notify_event_t ev;
+  memset(&ev, 0, sizeof(ev));
+
+  ev.response_type   = XCB_CONFIGURE_NOTIFY;
+  ev.event           = window;
+  ev.window          = window;
+  ev.above_sibling   = XCB_WINDOW_NONE;
+  ev.x               = x;
+  ev.y               = y;
+  ev.width           = width;
+  ev.height          = height;
+  ev.border_width    = 0;
+  ev.override_redirect = 0;
+
+  xcb_send_event(conn, 0, window, XCB_EVENT_MASK_STRUCTURE_NOTIFY, (const char *)&ev);
+  xcb_flush(conn);
+}
+
 void enable_new_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
   xcb_randr_get_screen_resources_current_cookie_t res_cookie = xcb_randr_get_screen_resources_current(conn, screen->root);
   xcb_randr_get_screen_resources_current_reply_t *res_reply = xcb_randr_get_screen_resources_current_reply(conn, res_cookie, NULL);
@@ -760,9 +779,17 @@ void remove_fullscreen_window(xcb_connection_t *conn, xcb_window_t window) {
   }
   if (index != -1) {
     xcb_delete_property(conn, window, atom_net_wm_state);
-    uint32_t values[] = { fs_windows[index].original_geometry.x, fs_windows[index].original_geometry.y, fs_windows[index].original_geometry.width, fs_windows[index].original_geometry.height };
-    uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+    uint32_t values[] = {
+      fs_windows[index].original_geometry.x,
+      fs_windows[index].original_geometry.y,
+      fs_windows[index].original_geometry.width,
+      fs_windows[index].original_geometry.height
+    };
+    uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
+                    XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
     xcb_configure_window(conn, window, mask, values);
+
+    send_configure_notify(conn, window, fs_windows[index].original_geometry.x, fs_windows[index].original_geometry.y, fs_windows[index].original_geometry.width, fs_windows[index].original_geometry.height);
 
     fs_windows[index].is_general_fullscreen = 0;
     fs_windows[index].is_monitor_fullscreen = 0;
@@ -826,6 +853,7 @@ void adjust_windows_within_bounds(xcb_connection_t *conn, xcb_window_t root) {
       uint32_t values[] = { new_x, new_y, window_width, window_height };
       uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
       xcb_configure_window(conn, child, mask, values);
+      send_configure_notify(conn, child, new_x, new_y, window_width, window_height);
     }
 
     free(geom_reply);
@@ -910,6 +938,7 @@ void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *c
           uint32_t values[] = { x, y, width, height };
           uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
           xcb_configure_window(conn, cm->window, mask, values);
+          send_configure_notify(conn, cm->window, (int)x, (int)y, (int)width, (int)height);
           xcb_change_property(conn, XCB_PROP_MODE_REPLACE, cm->window, atom_net_wm_state, XCB_ATOM_ATOM, 32, 1, &atom_net_wm_state_fullscreen);
           add_to_always_on_top(cm->window);
         }
@@ -940,6 +969,7 @@ void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *c
     uint32_t values[] = { x1, y1, x2 - x1, y2 - y1 };
     uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
     xcb_configure_window(conn, cm->window, mask, values);
+    send_configure_notify(conn, cm->window, x1, y1, x2 - x1, y2 - y1);
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, cm->window, atom_net_wm_state, XCB_ATOM_ATOM, 32, 1, &atom_net_wm_state_fullscreen);
 
     int index = -1;
@@ -1124,11 +1154,13 @@ void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_
         uint32_t values[] = { x1, y1, width, height };
         uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
         xcb_configure_window(conn, window, mask, values);
+        send_configure_notify(conn, window, x1, y1, width, height);
       }
     } else {
       uint32_t values[] = { 0, 0, total_width, total_height };
       uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
       xcb_configure_window(conn, window, mask, values);
+      send_configure_notify(conn, window, 0, 0, total_width, total_height);
     }
   }
 
