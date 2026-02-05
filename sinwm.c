@@ -1111,7 +1111,7 @@ void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_
     return;
   }
 
-  if (real_total_width > 0 && real_total_height > 0) {
+  if (real_total_width > 0 && real_total_height > 0 && (screen->width_in_pixels  != real_total_width || screen->height_in_pixels != real_total_height)) {
     xcb_randr_set_screen_size(conn, screen->root, real_total_width, real_total_height, screen->width_in_millimeters, screen->height_in_millimeters);
     fprintf(stderr, "Set screen size to %dx%d\n", real_total_width, real_total_height);
     fflush(stderr);
