@@ -1215,6 +1215,15 @@ int main() {
   
   setup_atoms(conn);
   setup_ewmh(conn, screen);
+  
+  xcb_generic_event_t *ev;
+  while ((ev = xcb_poll_for_event(conn))) {
+    uint8_t type = ev->response_type & ~0x80;
+    if (type == XCB_RANDR_SCREEN_CHANGE_NOTIFY || type == XCB_RANDR_NOTIFY)
+      handle_randr_event(conn, ev, screen);
+    free(ev);
+  }
+  
   query_xrandr(conn, screen);
 
   set_wallpaper(conn, screen);
