@@ -748,23 +748,32 @@ int calculate_fullscreen_geometry(int xs[4], int *x1, int *y1, int *x2, int *y2)
     *x2 = total_width;
     *y2 = total_height;
     return 0;
-  } else {
-    if (xs[0] >= 0 && xs[0] < monitor_count && xs[1] >= 0 && xs[1] < monitor_count && xs[2] >= 0 && xs[2] < monitor_count && xs[3] >= 0 && xs[3] < monitor_count) {
-      monitor_t *top_mon = &monitors[xs[0]];
-      monitor_t *bottom_mon = &monitors[xs[1]];
-      monitor_t *left_mon = &monitors[xs[2]];
-      monitor_t *right_mon = &monitors[xs[3]];
-      *x1 = left_mon->x;
-      *y1 = top_mon->y;
-      *x2 = right_mon->x + right_mon->width;
-      *y2 = bottom_mon->y + bottom_mon->height;
-      return 0;
-    } else {
-      fprintf(stderr, "Invalid monitor indices in _NET_WM_FULLSCREEN_MONITORS message.\n");
-      fflush(stderr);
-      return -1;
-    }
   }
+
+  monitor_t *top = NULL;
+  monitor_t *bottom = NULL;
+  monitor_t *left = NULL;
+  monitor_t *right = NULL;
+
+  for (int i = 0; i < monitor_count; i++) {
+    if (monitors[i].id == xs[0]) top    = &monitors[i];
+    if (monitors[i].id == xs[1]) bottom = &monitors[i];
+    if (monitors[i].id == xs[2]) left   = &monitors[i];
+    if (monitors[i].id == xs[3]) right  = &monitors[i];
+  }
+
+  if (!top || !bottom || !left || !right) {
+    fprintf(stderr, "Invalid CRTC IDs in _NET_WM_FULLSCREEN_MONITORS\n");
+    fflush(stderr);
+    return -1;
+  }
+
+  *x1 = left->x;
+  *y1 = top->y;
+  *x2 = right->x + right->width;
+  *y2 = bottom->y + bottom->height;
+
+  return 0;
 }
 
 int add_fullscreen_window(xcb_connection_t *conn, xcb_window_t window) {
