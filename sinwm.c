@@ -1311,7 +1311,12 @@ int main() {
   }
   
   query_xrandr(conn, screen);
-
+  
+  if (total_width > 0 && total_height > 0)
+    xcb_randr_set_screen_size(conn, screen->root, total_width, total_height, screen->width_in_millimeters, screen->height_in_millimeters);
+  
+  xcb_flush(conn);
+  
   set_wallpaper(conn, screen);
 
   xcb_cursor_t blank_cursor = create_blank_cursor(conn, screen);
