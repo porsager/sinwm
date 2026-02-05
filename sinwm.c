@@ -876,6 +876,9 @@ void adjust_windows_within_bounds(xcb_connection_t *conn, xcb_window_t root) {
   for (int i = 0; i < len; i++) {
     xcb_window_t child = children[i];
 
+    if (is_fullscreen_window(child))
+      continue;
+    
     xcb_get_geometry_cookie_t geom_cookie = xcb_get_geometry(conn, child);
     xcb_get_geometry_reply_t *geom_reply = xcb_get_geometry_reply(conn, geom_cookie, NULL);
     if (!geom_reply)
