@@ -721,6 +721,8 @@ void update_touch_devices(xcb_connection_t *conn) {
 
   xcb_input_xi_query_device_cookie_t cookie = xcb_input_xi_query_device(conn, XCB_INPUT_DEVICE_ALL);
   xcb_input_xi_query_device_reply_t *reply = xcb_input_xi_query_device_reply(conn, cookie, NULL);
+  if (!reply)
+    return;
   xcb_input_xi_device_info_iterator_t iter = xcb_input_xi_query_device_infos_iterator(reply);
 
   while (iter.rem) {
