@@ -1266,6 +1266,22 @@ void handle_xi_hierarchy_event(xcb_connection_t *conn, xcb_input_hierarchy_event
     update_touch_devices(conn);
 }
 
+static void initial_randr_apply(xcb_connection_t *conn, xcb_screen_t *screen) {
+  query_xrandr(conn, screen);
+  if (total_width > 0 && total_height > 0)
+    xcb_randr_set_screen_size(conn, screen->root, total_width, total_height, screen->width_in_millimeters, screen->height_in_millimeters);
+
+  adjust_windows_within_bounds(conn, screen->root);
+
+  uint32_t none = XCB_NONE;
+  xcb_change_window_attributes(conn, screen->root, XCB_CW_BACK_PIXMAP, &none);
+  xcb_clear_area(conn, 0, screen->root, 0, 0, (uint16_t)total_width, (uint16_t)total_height);
+  set_wallpaper(conn, screen);
+  update_touch_devices(conn);
+
+  xcb_flush(conn);
+}
+
 int main() {
   xcb_connection_t *conn = xcb_connect(NULL, NULL);
   if (xcb_connection_has_error(conn)) {
@@ -1305,29 +1321,8 @@ int main() {
   
   setup_atoms(conn);
   setup_ewmh(conn, screen);
-  
-  xcb_generic_event_t *ev;
-  while ((ev = xcb_poll_for_event(conn))) {
-    uint8_t type = ev->response_type & ~0x80;
-    if (type == randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY) {
-      handle_randr_event(conn, ev, screen, randr_event_base);
-    } else if (type == randr_event_base + XCB_RANDR_NOTIFY) {
-      xcb_randr_notify_event_t *re = (xcb_randr_notify_event_t *)ev;
-      if (re->subCode == XCB_RANDR_NOTIFY_CRTC_CHANGE || re->subCode == XCB_RANDR_NOTIFY_OUTPUT_CHANGE || re->subCode == XCB_RANDR_NOTIFY_OUTPUT_PROPERTY) {
-        handle_randr_event(conn, ev, screen, randr_event_base);
-      }
-    }
-    free(ev);
-  }
-  
-  query_xrandr(conn, screen);
-  
-  if (total_width > 0 && total_height > 0)
-    xcb_randr_set_screen_size(conn, screen->root, total_width, total_height, screen->width_in_millimeters, screen->height_in_millimeters);
-  
-  xcb_flush(conn);
-  
-  set_wallpaper(conn, screen);
+
+  initial_randr_apply(conn, screen);
 
   xcb_cursor_t blank_cursor = create_blank_cursor(conn, screen);
   uint32_t cursors[] = {blank_cursor};
