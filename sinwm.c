@@ -143,9 +143,7 @@ xcb_pixmap_t load_wallpaper(xcb_connection_t *conn, xcb_screen_t *screen, const 
   }
 
   int stride = wallpaper_width * 4;
-  
   xcb_put_image(conn, XCB_IMAGE_FORMAT_Z_PIXMAP, pixmap, gc, wallpaper_width, wallpaper_height, 0, 0, 0, screen->root_depth, stride * wallpaper_height, (const uint8_t *)image_data);
-  xcb_put_image(conn, XCB_IMAGE_FORMAT_Z_PIXMAP, pixmap, gc, wallpaper_width, wallpaper_height, 0, 0, 0, screen->root_depth, wallpaper_width * wallpaper_height * 4, (const uint8_t *)image_data);
 
   xcb_free_gc(conn, gc);
   xcb_flush(conn);
