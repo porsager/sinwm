@@ -19,6 +19,10 @@ xcb_atom_t atom_net_wm_state
          , atom_net_supported
          , atom_net_supporting_wm_check
          , atom_net_active_window
+         , atom_net_wm_window_type
+         , atom_net_wm_window_type_dock
+         , atom_net_close_window
+         , atom_net_wm_window_type_splash
          , atom_net_wm_fullscreen_monitors
          , atom_net_wm_name
          , atom_utf8_string
@@ -255,20 +259,24 @@ void remove_net_active_window(xcb_connection_t *conn) {
 
 void setup_atoms(xcb_connection_t *conn) {
   xcb_intern_atom_cookie_t cookie_wm_state = xcb_intern_atom(conn, 0, strlen("_NET_WM_STATE"), "_NET_WM_STATE")
-                          , cookie_wm_state_above = xcb_intern_atom(conn, 0, strlen("_NET_WM_STATE_ABOVE"), "_NET_WM_STATE_ABOVE")
-                          , cookie_wm_state_fullscreen = xcb_intern_atom(conn, 0, strlen("_NET_WM_STATE_FULLSCREEN"), "_NET_WM_STATE_FULLSCREEN")
-                          , cookie_net_supported = xcb_intern_atom(conn, 0, strlen("_NET_SUPPORTED"), "_NET_SUPPORTED")
-                          , cookie_net_supporting_wm_check = xcb_intern_atom(conn, 0, strlen("_NET_SUPPORTING_WM_CHECK"), "_NET_SUPPORTING_WM_CHECK")
-                          , cookie_net_active_window = xcb_intern_atom(conn, 0, strlen("_NET_ACTIVE_WINDOW"), "_NET_ACTIVE_WINDOW")
-                          , cookie_net_wm_fullscreen_monitors = xcb_intern_atom(conn, 0, strlen("_NET_WM_FULLSCREEN_MONITORS"), "_NET_WM_FULLSCREEN_MONITORS")
-                          , cookie_net_wm_name = xcb_intern_atom(conn, 0, strlen("_NET_WM_NAME"), "_NET_WM_NAME")
-                          , cookie_utf8_string = xcb_intern_atom(conn, 1, strlen("UTF8_STRING"), "UTF8_STRING")
-                          , cookie_wm_name = xcb_intern_atom(conn, 0, strlen("WM_NAME"), "WM_NAME")
-                          , cookie_wm_class = xcb_intern_atom(conn, 0, strlen("WM_CLASS"), "WM_CLASS")
-                          , cookie_wm_protocols = xcb_intern_atom(conn, 0, strlen("WM_PROTOCOLS"), "WM_PROTOCOLS")
-                          , cookie_wm_delete_window = xcb_intern_atom(conn, 0, strlen("WM_DELETE_WINDOW"), "WM_DELETE_WINDOW")
-                          , cookie_ctm = xcb_intern_atom(conn, 0, strlen("Coordinate Transformation Matrix"), "Coordinate Transformation Matrix")
-                          , cookie_float = xcb_intern_atom(conn, 0, strlen("FLOAT"), "FLOAT");
+                         , cookie_wm_state_above = xcb_intern_atom(conn, 0, strlen("_NET_WM_STATE_ABOVE"), "_NET_WM_STATE_ABOVE")
+                         , cookie_wm_state_fullscreen = xcb_intern_atom(conn, 0, strlen("_NET_WM_STATE_FULLSCREEN"), "_NET_WM_STATE_FULLSCREEN")
+                         , cookie_net_supported = xcb_intern_atom(conn, 0, strlen("_NET_SUPPORTED"), "_NET_SUPPORTED")
+                         , cookie_net_supporting_wm_check = xcb_intern_atom(conn, 0, strlen("_NET_SUPPORTING_WM_CHECK"), "_NET_SUPPORTING_WM_CHECK")
+                         , cookie_net_active_window = xcb_intern_atom(conn, 0, strlen("_NET_ACTIVE_WINDOW"), "_NET_ACTIVE_WINDOW")
+                         , cookie_net_wm_fullscreen_monitors = xcb_intern_atom(conn, 0, strlen("_NET_WM_FULLSCREEN_MONITORS"), "_NET_WM_FULLSCREEN_MONITORS")
+                         , cookie_net_wm_name = xcb_intern_atom(conn, 0, strlen("_NET_WM_NAME"), "_NET_WM_NAME")
+                         , cookie_net_wm_window_type = xcb_intern_atom(conn, 0, strlen("_NET_WM_WINDOW_TYPE"), "_NET_WM_WINDOW_TYPE")
+                         , cookie_net_wm_window_type_dock = xcb_intern_atom(conn, 0, strlen("_NET_WM_WINDOW_TYPE_DOCK"), "_NET_WM_WINDOW_TYPE_DOCK")
+                         , cookie_net_close_window = xcb_intern_atom(conn, 0, strlen("_NET_CLOSE_WINDOW"), "_NET_CLOSE_WINDOW")
+                         , cookie_net_wm_window_type_splash = xcb_intern_atom(conn, 0, strlen("_NET_WM_WINDOW_TYPE_SPLASH"), "_NET_WM_WINDOW_TYPE_SPLASH")
+                         , cookie_utf8_string = xcb_intern_atom(conn, 1, strlen("UTF8_STRING"), "UTF8_STRING")
+                         , cookie_wm_name = xcb_intern_atom(conn, 0, strlen("WM_NAME"), "WM_NAME")
+                         , cookie_wm_class = xcb_intern_atom(conn, 0, strlen("WM_CLASS"), "WM_CLASS")
+                         , cookie_wm_protocols = xcb_intern_atom(conn, 0, strlen("WM_PROTOCOLS"), "WM_PROTOCOLS")
+                         , cookie_wm_delete_window = xcb_intern_atom(conn, 0, strlen("WM_DELETE_WINDOW"), "WM_DELETE_WINDOW")
+                         , cookie_ctm = xcb_intern_atom(conn, 0, strlen("Coordinate Transformation Matrix"), "Coordinate Transformation Matrix")
+                         , cookie_float = xcb_intern_atom(conn, 0, strlen("FLOAT"), "FLOAT");
 
   xcb_intern_atom_reply_t *reply_wm_state = xcb_intern_atom_reply(conn, cookie_wm_state, NULL)
                         , *reply_wm_state_above = xcb_intern_atom_reply(conn, cookie_wm_state_above, NULL)
@@ -278,6 +286,10 @@ void setup_atoms(xcb_connection_t *conn) {
                         , *reply_net_active_window = xcb_intern_atom_reply(conn, cookie_net_active_window, NULL)
                         , *reply_net_wm_fullscreen_monitors = xcb_intern_atom_reply(conn, cookie_net_wm_fullscreen_monitors, NULL)
                         , *reply_net_wm_name = xcb_intern_atom_reply(conn, cookie_net_wm_name, NULL)
+                        , *reply_net_wm_window_type = xcb_intern_atom_reply(conn, cookie_net_wm_window_type, NULL)
+                        , *reply_net_wm_window_type_dock = xcb_intern_atom_reply(conn, cookie_net_wm_window_type_dock, NULL)
+                        , *reply_net_close_window = xcb_intern_atom_reply(conn, cookie_net_close_window, NULL)
+                        , *reply_net_wm_window_type_splash = xcb_intern_atom_reply(conn, cookie_net_wm_window_type_splash, NULL);
                         , *reply_utf8_string = xcb_intern_atom_reply(conn, cookie_utf8_string, NULL)
                         , *reply_wm_name = xcb_intern_atom_reply(conn, cookie_wm_name, NULL)
                         , *reply_wm_class = xcb_intern_atom_reply(conn, cookie_wm_class, NULL)
@@ -294,6 +306,10 @@ void setup_atoms(xcb_connection_t *conn) {
   if (reply_net_active_window) { atom_net_active_window = reply_net_active_window->atom; free(reply_net_active_window); }
   if (reply_net_wm_fullscreen_monitors) { atom_net_wm_fullscreen_monitors = reply_net_wm_fullscreen_monitors->atom; free(reply_net_wm_fullscreen_monitors); }
   if (reply_net_wm_name) { atom_net_wm_name = reply_net_wm_name->atom; free(reply_net_wm_name); }
+  if (reply_net_wm_window_type) { atom_net_wm_window_type = reply_net_wm_window_type->atom; free(reply_net_wm_window_type); }
+  if (reply_net_wm_window_type_dock) { atom_net_wm_window_type_dock = reply_net_wm_window_type_dock->atom; free(reply_net_wm_window_type_dock); }
+  if (reply_net_close_window) { atom_net_close_window = reply_net_close_window->atom; free(reply_net_close_window); }
+  if (reply_net_wm_window_type_splash) { atom_net_wm_window_type_splash = reply_net_wm_window_type_splash->atom; free(reply_net_wm_window_type_splash); }
   if (reply_utf8_string) { atom_utf8_string = reply_utf8_string->atom; free(reply_utf8_string); }
   if (reply_wm_name) { atom_wm_name = reply_wm_name->atom; free(reply_wm_name); }
   if (reply_wm_class) { atom_wm_class = reply_wm_class->atom; free(reply_wm_class); }
@@ -352,7 +368,10 @@ void setup_ewmh(xcb_connection_t *conn, xcb_screen_t *screen) {
     atom_net_wm_state_fullscreen,
     atom_net_active_window,
     atom_net_wm_fullscreen_monitors,
-    atom_net_wm_name
+    atom_net_wm_name,
+    atom_net_wm_window_type,
+    atom_net_close_window,
+    atom_net_wm_window_type_splash
   };
   xcb_change_property(conn, XCB_PROP_MODE_REPLACE, screen->root, atom_net_supported, XCB_ATOM_ATOM, 32, sizeof(supported_atoms) / sizeof(xcb_atom_t), supported_atoms);
   const char *wm_name = "SinWM";
@@ -460,10 +479,8 @@ void enable_new_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
   for (int i = 0; i < num_outputs; i++) {
     xcb_randr_output_t output = outputs[i];
 
-    xcb_randr_get_output_info_cookie_t info_cookie =
-      xcb_randr_get_output_info(conn, output, XCB_CURRENT_TIME);
-    xcb_randr_get_output_info_reply_t *info_reply =
-      xcb_randr_get_output_info_reply(conn, info_cookie, NULL);
+    xcb_randr_get_output_info_cookie_t info_cookie = xcb_randr_get_output_info(conn, output, XCB_CURRENT_TIME);
+    xcb_randr_get_output_info_reply_t *info_reply = xcb_randr_get_output_info_reply(conn, info_cookie, NULL);
     if (!info_reply)
       continue;
 
@@ -476,7 +493,8 @@ void enable_new_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
       if (num_modes == 0) {
         fprintf(stderr, "No modes for output %.*s\n", name_len, name);
         fflush(stderr);
-        goto next_output;
+        free(info_reply);
+        continue;
       }
 
       uint16_t rotation = XCB_RANDR_ROTATION_ROTATE_0;
@@ -485,10 +503,8 @@ void enable_new_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
       for (int j = 0; j < num_crtcs; j++) {
         xcb_randr_crtc_t test_crtc = crtcs[j];
 
-        xcb_randr_get_crtc_info_cookie_t crtc_info_cookie =
-          xcb_randr_get_crtc_info(conn, test_crtc, XCB_CURRENT_TIME);
-        xcb_randr_get_crtc_info_reply_t *crtc_info_reply =
-          xcb_randr_get_crtc_info_reply(conn, crtc_info_cookie, NULL);
+        xcb_randr_get_crtc_info_cookie_t crtc_info_cookie = xcb_randr_get_crtc_info(conn, test_crtc, XCB_CURRENT_TIME);
+        xcb_randr_get_crtc_info_reply_t *crtc_info_reply = xcb_randr_get_crtc_info_reply(conn, crtc_info_cookie, NULL);
         if (!crtc_info_reply)
           continue;
 
@@ -533,10 +549,9 @@ void enable_new_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
 
       if (set_crtc_reply)
         free(set_crtc_reply);
+      
+      free(info_reply);
     }
-    
-    next_output:
-    free(info_reply);
   }
 
   free(res_reply);
@@ -934,6 +949,92 @@ void remove_fullscreen_window(xcb_connection_t *conn, xcb_window_t window) {
   }
 }
 
+int window_supports_wm_delete(xcb_connection_t *conn, xcb_window_t window) {
+  xcb_get_property_cookie_t c = xcb_get_property(conn, 0, window, atom_wm_protocols, XCB_ATOM_ATOM, 0, 8);
+  xcb_get_property_reply_t *r = xcb_get_property_reply(conn, c, NULL);
+
+  if (!r)
+    return 0;
+
+  int n = xcb_get_property_value_length(r) / sizeof(xcb_atom_t);
+  xcb_atom_t *atoms = (xcb_atom_t *)xcb_get_property_value(r);
+
+  int supports = 0;
+  for (int i = 0; i < n; i++) {
+    if (atoms[i] == atom_wm_delete_window) {
+      supports = 1;
+      break;
+    }
+  }
+
+  free(r);
+  return supports;
+}
+
+int window_is_splash(xcb_connection_t *conn, xcb_window_t window) {
+  xcb_get_property_cookie_t c =
+    xcb_get_property(conn, 0,
+      window,
+      atom_net_wm_window_type,
+      XCB_ATOM_ATOM,
+      0, 8);
+
+  xcb_get_property_reply_t *r =
+    xcb_get_property_reply(conn, c, NULL);
+
+  if (!r)
+    return 0;
+
+  int n = xcb_get_property_value_length(r) / sizeof(xcb_atom_t);
+  xcb_atom_t *atoms = (xcb_atom_t *)xcb_get_property_value(r);
+
+  int is_splash = 0;
+  for (int i = 0; i < n; i++) {
+    if (atoms[i] == atom_net_wm_window_type_splash) {
+      is_splash = 1;
+      break;
+    }
+  }
+
+  free(r);
+  return is_splash;
+}
+
+void send_wm_delete(xcb_connection_t *conn, xcb_window_t window) {
+  xcb_client_message_event_t ev;
+  memset(&ev, 0, sizeof(ev));
+  ev.response_type = XCB_CLIENT_MESSAGE;
+  ev.window = window;
+  ev.type = atom_wm_protocols;
+  ev.format = 32;
+  ev.data.data32[0] = atom_wm_delete_window;
+  ev.data.data32[1] = XCB_CURRENT_TIME;
+  xcb_send_event(conn, 0, window, XCB_EVENT_MASK_NO_EVENT, (char *)&ev);
+  xcb_flush(conn);
+}
+
+int window_is_dock(xcb_connection_t *conn, xcb_window_t window) {
+  xcb_get_property_cookie_t c = xcb_get_property(conn, 0, window, atom_net_wm_window_type, XCB_ATOM_ATOM, 0, 8);
+  xcb_get_property_reply_t *r = xcb_get_property_reply(conn, c, NULL);
+
+  if (!r)
+    return 0;
+
+  int n = xcb_get_property_value_length(r) / sizeof(xcb_atom_t);
+  xcb_atom_t *atoms = (xcb_atom_t *)xcb_get_property_value(r);
+
+  int is_dock = 0;
+  for (int i = 0; i < n; i++) {
+    if (atoms[i] == atom_net_wm_window_type_dock) {
+      is_dock = 1;
+      break;
+    }
+  }
+
+  free(r);
+  return is_dock;
+}
+
 void adjust_windows_within_bounds(xcb_connection_t *conn, xcb_screen_t *screen) {
   xcb_query_tree_cookie_t tree_cookie = xcb_query_tree(conn, screen->root);
   xcb_query_tree_reply_t *tree_reply = xcb_query_tree_reply(conn, tree_cookie, NULL);
@@ -952,7 +1053,7 @@ void adjust_windows_within_bounds(xcb_connection_t *conn, xcb_screen_t *screen) 
 
   for (int i = 0; i < len; i++) {
     xcb_window_t child = children[i];
-
+    
     if (is_fullscreen_window(child))
       continue;
     
@@ -961,6 +1062,11 @@ void adjust_windows_within_bounds(xcb_connection_t *conn, xcb_screen_t *screen) 
     if (!geom_reply)
       continue;
 
+    if (window_is_dock(conn, child) || window_is_splash(conn, child)) {
+      free(geom_reply);
+      continue;
+    };
+    
     xcb_get_window_attributes_reply_t *attr = xcb_get_window_attributes_reply(conn, xcb_get_window_attributes(conn, child), NULL);
     
     if (!attr || attr->override_redirect) {
@@ -1047,6 +1153,9 @@ void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *c
       }
     }
 
+    if (window_is_dock(conn, cm->window) || window_is_splash(conn, cm->window))
+      return;
+    
     if (atom1 == atom_net_wm_state_fullscreen || atom2 == atom_net_wm_state_fullscreen) {
       int index = -1;
       for (int i = 0; i < fullscreen_count; i++) {
@@ -1096,7 +1205,6 @@ void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *c
           xcb_configure_window(conn, cm->window, mask, values);
           send_configure_notify(conn, cm->window, (int)x, (int)y, (int)width, (int)height);
           add_net_wm_state_atom(conn, cm->window, atom_net_wm_state_fullscreen);
-          add_to_always_on_top(cm->window);
         }
       } else if (action == 0 || (action == 2 && index != -1)) {
         if (index != -1)
@@ -1148,6 +1256,15 @@ void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *c
       fs_windows[index].is_general_fullscreen = 0;
     }
     xcb_flush(conn);
+  } else if (cm->type == atom_net_close_window) {
+    xcb_window_t target = cm->window;
+    if (window_supports_wm_delete(conn, target))
+      send_wm_delete(conn, target);
+    else
+      xcb_kill_client(conn, target);
+  
+    xcb_flush(conn);
+    return;
   }
 }
 
@@ -1198,6 +1315,21 @@ void handle_map_request(xcb_connection_t *conn, xcb_map_request_event_t *ev) {
       xcb_change_property(conn, XCB_PROP_MODE_REPLACE, ev->window, atom_net_wm_name, atom_utf8_string, 8, strlen(default_net_name), default_net_name);
     }
     free(name_reply);
+  }
+  
+  if (window_is_dock(conn, ev->window)) {
+    uint32_t stack[] = { XCB_STACK_MODE_ABOVE };
+    xcb_configure_window(conn, ev->window, XCB_CONFIG_WINDOW_STACK_MODE, stack);
+    add_to_always_on_top(ev->window);
+    xcb_flush(conn);
+    return;
+  }
+  
+  if (window_is_splash(conn, ev->window)) {
+    uint32_t stack[] = { XCB_STACK_MODE_ABOVE };
+    xcb_configure_window(conn, ev->window, XCB_CONFIG_WINDOW_STACK_MODE, stack);
+    xcb_flush(conn);
+    return;
   }
 
   set_input_focus(conn, ev->window);
@@ -1279,11 +1411,6 @@ void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_
 
   adjust_windows_within_bounds(conn, screen);
 
-  for (int i = 0; i < always_on_top_count; i++) {
-    uint32_t values[] = { XCB_STACK_MODE_ABOVE };
-    xcb_configure_window(conn, always_on_top_windows[i], XCB_CONFIG_WINDOW_STACK_MODE, values);
-  }
-
   for (int i = 0; i < fullscreen_count; i++) {
     xcb_window_t window = fs_windows[i].window;
     if (fs_windows[i].has_monitors) {
@@ -1308,18 +1435,24 @@ void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_
         uint32_t values[] = { x1, y1, width, height };
         uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
         xcb_configure_window(conn, window, mask, values);
-        uint32_t stack[] = { XCB_STACK_MODE_ABOVE };
-        xcb_configure_window(conn, window, XCB_CONFIG_WINDOW_STACK_MODE, stack);
         send_configure_notify(conn, window, x1, y1, width, height);
       }
     } else {
       uint32_t values[] = { 0, 0, total_width, total_height };
       uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
       xcb_configure_window(conn, window, mask, values);
-      uint32_t stack[] = { XCB_STACK_MODE_ABOVE };
-      xcb_configure_window(conn, window, XCB_CONFIG_WINDOW_STACK_MODE, stack);
       send_configure_notify(conn, window, 0, 0, total_width, total_height);
     }
+  }
+  
+  for (int i = 0; i < fullscreen_count; i++) {
+    uint32_t stack[] = { XCB_STACK_MODE_ABOVE };
+    xcb_configure_window(conn, fs_windows[i].window, XCB_CONFIG_WINDOW_STACK_MODE, stack);
+  }
+  
+  for (int i = 0; i < always_on_top_count; i++) {
+    uint32_t stack[] = { XCB_STACK_MODE_ABOVE };
+    xcb_configure_window(conn, always_on_top_windows[i], XCB_CONFIG_WINDOW_STACK_MODE, stack);
   }
 
   uint32_t none = XCB_NONE;
