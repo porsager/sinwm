@@ -404,6 +404,44 @@ static xcb_randr_mode_t choose_output_mode(xcb_connection_t *conn, xcb_randr_out
   return mode;
 }
 
+xcb_randr_output_t get_primary_output(xcb_connection_t *conn, xcb_window_t root) {
+  xcb_randr_get_output_primary_cookie_t c = xcb_randr_get_output_primary(conn, root);
+  xcb_randr_get_output_primary_reply_t *r = xcb_randr_get_output_primary_reply(conn, c, NULL);
+
+  if (!r)
+    return XCB_NONE;
+
+  xcb_randr_output_t primary = r->output;
+  free(r);
+  return primary;
+}
+
+monitor_t *get_primary_monitor(xcb_connection_t *conn, xcb_screen_t *screen) {
+  xcb_randr_output_t primary_output = get_primary_output(conn, screen->root);
+
+  if (primary_output == XCB_NONE)
+    return NULL;
+
+  xcb_randr_get_output_info_reply_t *info = xcb_randr_get_output_info_reply(conn, xcb_randr_get_output_info(conn, primary_output, XCB_CURRENT_TIME), NULL);
+
+  if (!info)
+    return NULL;
+
+  xcb_randr_crtc_t crtc = info->crtc;
+  free(info);
+
+  if (crtc == XCB_NONE)
+    return NULL;
+
+  for (int i = 0; i < monitor_count; i++) {
+    if (monitors[i].id == crtc)
+      return &monitors[i];
+  }
+
+  return NULL;
+}
+
+
 void enable_new_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
   xcb_randr_get_screen_resources_current_cookie_t res_cookie = xcb_randr_get_screen_resources_current(conn, screen->root);
   xcb_randr_get_screen_resources_current_reply_t *res_reply = xcb_randr_get_screen_resources_current_reply(conn, res_cookie, NULL);
@@ -438,8 +476,7 @@ void enable_new_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
       if (num_modes == 0) {
         fprintf(stderr, "No modes for output %.*s\n", name_len, name);
         fflush(stderr);
-        free(info_reply);
-        continue;
+        goto next_output;
       }
 
       uint16_t rotation = XCB_RANDR_ROTATION_ROTATE_0;
@@ -479,9 +516,7 @@ void enable_new_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
 
       xcb_randr_mode_t preferred_mode = choose_output_mode(conn, output, info_reply);
       if (preferred_mode == XCB_NONE) {
-        fprintf(stderr,
-          "No usable mode for output %.*s\n",
-          name_len, name);
+        fprintf(stderr,"No usable mode for output %.*s\n", name_len, name);
         free(info_reply);
         continue;
       }
@@ -499,7 +534,8 @@ void enable_new_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
       if (set_crtc_reply)
         free(set_crtc_reply);
     }
-
+    
+    next_output:
     free(info_reply);
   }
 
@@ -898,15 +934,19 @@ void remove_fullscreen_window(xcb_connection_t *conn, xcb_window_t window) {
   }
 }
 
-void adjust_windows_within_bounds(xcb_connection_t *conn, xcb_window_t root) {
-  xcb_query_tree_cookie_t tree_cookie = xcb_query_tree(conn, root);
+void adjust_windows_within_bounds(xcb_connection_t *conn, xcb_screen_t *screen) {
+  xcb_query_tree_cookie_t tree_cookie = xcb_query_tree(conn, screen->root);
   xcb_query_tree_reply_t *tree_reply = xcb_query_tree_reply(conn, tree_cookie, NULL);
   if (!tree_reply) {
     fprintf(stderr, "Failed to query window tree.\n");
     fflush(stderr);
     return;
   }
-
+  
+  monitor_t *primary = get_primary_monitor(conn, screen);
+  if (!primary)
+    primary = (monitor_count > 0) ? &monitors[0] : NULL; 
+  
   int len = xcb_query_tree_children_length(tree_reply);
   xcb_window_t *children = xcb_query_tree_children(tree_reply);
 
@@ -953,12 +993,18 @@ void adjust_windows_within_bounds(xcb_connection_t *conn, xcb_window_t root) {
     }
 
     if (!on_screen) {
-      int new_x = monitors[0].x;
-      int new_y = monitors[0].y;
-      if (window_width > monitors[0].width)
-          window_width = monitors[0].width;
-      if (window_height > monitors[0].height)
-          window_height = monitors[0].height;
+      if (!primary) {
+        free(geom_reply);
+        continue;
+      }
+      
+      int new_x = primary->x;
+      int new_y = primary->y;
+      
+      if (window_width > primary->width)
+        window_width = primary->width;
+      if (window_height > primary->height)
+        window_height = primary->height;
 
       uint32_t values[] = { new_x, new_y, window_width, window_height };
       uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
@@ -1231,7 +1277,7 @@ void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_
     fflush(stderr);
   }
 
-  adjust_windows_within_bounds(conn, screen->root);
+  adjust_windows_within_bounds(conn, screen);
 
   for (int i = 0; i < always_on_top_count; i++) {
     uint32_t values[] = { XCB_STACK_MODE_ABOVE };
@@ -1308,7 +1354,7 @@ static void initial_randr_apply(xcb_connection_t *conn, xcb_screen_t *screen) {
   if (total_width > 0 && total_height > 0)
     xcb_randr_set_screen_size(conn, screen->root, total_width, total_height, screen->width_in_millimeters, screen->height_in_millimeters);
 
-  adjust_windows_within_bounds(conn, screen->root);
+  adjust_windows_within_bounds(conn, screen);
 
   uint32_t none = XCB_NONE;
   xcb_change_window_attributes(conn, screen->root, XCB_CW_BACK_PIXMAP, &none);
