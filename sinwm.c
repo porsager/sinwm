@@ -16,24 +16,24 @@
 
 static xcb_atom_t 
     atom_net_wm_state
-         , atom_net_wm_state_above
-         , atom_net_wm_state_fullscreen
-         , atom_net_supported
-         , atom_net_supporting_wm_check
-         , atom_net_active_window
-         , atom_net_wm_window_type
-         , atom_net_wm_window_type_dock
-         , atom_net_close_window
-         , atom_net_wm_window_type_splash
-         , atom_net_wm_fullscreen_monitors
-         , atom_net_wm_name
-         , atom_utf8_string
-         , atom_wm_name
-         , atom_wm_class
-         , atom_wm_protocols
-         , atom_wm_delete_window
-         , atom_coordinate_transformation_matrix
-         , atom_float;
+  , atom_net_wm_state_above
+  , atom_net_wm_state_fullscreen
+  , atom_net_supported
+  , atom_net_supporting_wm_check
+  , atom_net_active_window
+  , atom_net_wm_window_type
+  , atom_net_wm_window_type_dock
+  , atom_net_close_window
+  , atom_net_wm_window_type_splash
+  , atom_net_wm_fullscreen_monitors
+  , atom_net_wm_name
+  , atom_utf8_string
+  , atom_wm_name
+  , atom_wm_class
+  , atom_wm_protocols
+  , atom_wm_delete_window
+  , atom_coordinate_transformation_matrix
+  , atom_float;
 
 static xcb_pixmap_t pixmap = XCB_PIXMAP_NONE;
 static xcb_window_t always_on_top_windows[MAX_WINDOWS];
