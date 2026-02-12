@@ -12,6 +12,7 @@
 
 #define MAX_WINDOWS 128
 #define MAX_MONITORS 32
+#define OUTPUT_NAME_MAX 64
 
 xcb_atom_t atom_net_wm_state
          , atom_net_wm_state_above
@@ -35,6 +36,7 @@ xcb_atom_t atom_net_wm_state
 
 xcb_pixmap_t pixmap = XCB_PIXMAP_NONE;
 xcb_window_t always_on_top_windows[MAX_WINDOWS];
+xcb_window_t wm_support_window = XCB_WINDOW_NONE;
 int always_on_top_count = 0;
 float m0[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
 float m90[9] = { 0, -1, 1, 1, 0, 0, 0, 0, 1 };
@@ -44,7 +46,7 @@ float m270[9] = { 0, 1, 0, -1, 0, 1, 0, 0, 1 };
 typedef struct {
   xcb_window_t window;
   xcb_rectangle_t original_geometry;
-  int monitors[4];
+  char monitor_output_names[4][OUTPUT_NAME_MAX];
   int has_monitors;
   int is_general_fullscreen;
   int is_monitor_fullscreen;
@@ -55,7 +57,9 @@ int fullscreen_count = 0;
 xcb_window_t active_window = XCB_WINDOW_NONE;
 
 typedef struct {
-  int id;
+  xcb_randr_crtc_t crtc;
+  xcb_randr_output_t output;
+  char output_name[OUTPUT_NAME_MAX];
   int x;
   int y;
   int width;
@@ -183,7 +187,6 @@ void set_wallpaper(xcb_connection_t *conn, xcb_screen_t *screen) {
   }
 
   xcb_free_gc(conn, gc);
-  xcb_free_pixmap(conn, wallpaper_pixmap);
   xcb_flush(conn);
 }
 
@@ -241,14 +244,23 @@ xcb_window_t get_top_focus() {
   return XCB_WINDOW_NONE;
 }
 
-void set_input_focus(xcb_connection_t *conn, xcb_window_t window) {
-  xcb_set_input_focus(conn, XCB_INPUT_FOCUS_POINTER_ROOT, window, XCB_CURRENT_TIME);
+void set_input_focus_ts(xcb_connection_t *conn, xcb_window_t window, xcb_timestamp_t ts) {
+  if (ts == 0)
+    ts = XCB_CURRENT_TIME;
+
+  xcb_set_input_focus(conn, XCB_INPUT_FOCUS_POINTER_ROOT, window, ts);
   active_window = window;
   push_focus(window);
+
   xcb_screen_iterator_t iter = xcb_setup_roots_iterator(xcb_get_setup(conn));
   xcb_screen_t *screen = iter.data;
   xcb_change_property(conn, XCB_PROP_MODE_REPLACE, screen->root, atom_net_active_window, XCB_ATOM_WINDOW, 32, 1, &window);
+
   xcb_flush(conn);
+}
+
+void set_input_focus(xcb_connection_t *conn, xcb_window_t window) {
+  set_input_focus_ts(conn, window, XCB_CURRENT_TIME);
 }
 
 void remove_net_active_window(xcb_connection_t *conn) {
@@ -357,11 +369,11 @@ int is_fullscreen_window(xcb_window_t window) {
 }
 
 void setup_ewmh(xcb_connection_t *conn, xcb_screen_t *screen) {
-  xcb_window_t wm_window = xcb_generate_id(conn);
+  wm_support_window = xcb_generate_id(conn);
 
-  xcb_create_window(conn, XCB_COPY_FROM_PARENT, wm_window, screen->root, 0, 0, 1, 1, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT, screen->root_visual, 0, NULL);
-  xcb_change_property(conn, XCB_PROP_MODE_REPLACE, screen->root, atom_net_supporting_wm_check, XCB_ATOM_WINDOW, 32, 1, &wm_window);
-  xcb_change_property(conn, XCB_PROP_MODE_REPLACE, wm_window, atom_net_supporting_wm_check, XCB_ATOM_WINDOW, 32, 1, &wm_window);
+  xcb_create_window(conn, XCB_COPY_FROM_PARENT, wm_support_window, screen->root, 0, 0, 1, 1, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT, screen->root_visual, 0, NULL);
+  xcb_change_property(conn, XCB_PROP_MODE_REPLACE, screen->root, atom_net_supporting_wm_check, XCB_ATOM_WINDOW, 32, 1, &wm_support_window);
+  xcb_change_property(conn, XCB_PROP_MODE_REPLACE, wm_support_window, atom_net_supporting_wm_check, XCB_ATOM_WINDOW, 32, 1, &wm_support_window);
 
   xcb_atom_t supported_atoms[] = {
     atom_net_wm_state,
@@ -376,15 +388,15 @@ void setup_ewmh(xcb_connection_t *conn, xcb_screen_t *screen) {
   };
   xcb_change_property(conn, XCB_PROP_MODE_REPLACE, screen->root, atom_net_supported, XCB_ATOM_ATOM, 32, sizeof(supported_atoms) / sizeof(xcb_atom_t), supported_atoms);
   const char *wm_name = "SinWM";
-  xcb_change_property(conn, XCB_PROP_MODE_REPLACE, wm_window, atom_wm_name, XCB_ATOM_STRING, 8, strlen(wm_name), wm_name);
+  xcb_change_property(conn, XCB_PROP_MODE_REPLACE, wm_support_window, atom_wm_name, XCB_ATOM_STRING, 8, strlen(wm_name), wm_name);
   const char *net_wm_name = "SinWM";
-  xcb_change_property(conn, XCB_PROP_MODE_REPLACE, wm_window, atom_net_wm_name, atom_utf8_string, 8, strlen(net_wm_name), net_wm_name);
+  xcb_change_property(conn, XCB_PROP_MODE_REPLACE, wm_support_window, atom_net_wm_name, atom_utf8_string, 8, strlen(net_wm_name), net_wm_name);
   const char *wm_class = "myminimalwm\0SinWM";
-  xcb_change_property(conn, XCB_PROP_MODE_REPLACE, wm_window, atom_wm_class, XCB_ATOM_STRING, 8, strlen(wm_class) + 1, wm_class);
+  xcb_change_property(conn, XCB_PROP_MODE_REPLACE, wm_support_window, atom_wm_class, XCB_ATOM_STRING, 8, strlen(wm_class) + 1, wm_class);
   xcb_atom_t protocols[] = { atom_wm_delete_window };
-  xcb_change_property(conn, XCB_PROP_MODE_REPLACE, wm_window, atom_wm_protocols, XCB_ATOM_ATOM, 32, sizeof(protocols)/sizeof(xcb_atom_t), protocols);
+  xcb_change_property(conn, XCB_PROP_MODE_REPLACE, wm_support_window, atom_wm_protocols, XCB_ATOM_ATOM, 32, sizeof(protocols)/sizeof(xcb_atom_t), protocols);
 
-  xcb_map_window(conn, wm_window);
+  xcb_map_window(conn, wm_support_window);
   xcb_flush(conn);
 }
 
@@ -454,7 +466,7 @@ monitor_t *get_primary_monitor(xcb_connection_t *conn, xcb_screen_t *screen) {
     return NULL;
 
   for (int i = 0; i < monitor_count; i++) {
-    if (monitors[i].id == crtc)
+    if (monitors[i].crtc == crtc)
       return &monitors[i];
   }
 
@@ -477,6 +489,11 @@ void enable_new_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
   xcb_randr_crtc_t *crtcs = xcb_randr_get_screen_resources_current_crtcs(res_reply);
   int num_crtcs = xcb_randr_get_screen_resources_current_crtcs_length(res_reply);
 
+  if (num_crtcs <= 0) {
+    free(res_reply);
+    return;
+  }
+  
   for (int i = 0; i < num_outputs; i++) {
     xcb_randr_output_t output = outputs[i];
 
@@ -489,8 +506,7 @@ void enable_new_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
       int name_len = xcb_randr_get_output_info_name_length(info_reply);
       char *name = (char *)xcb_randr_get_output_info_name(info_reply);
       int num_modes = xcb_randr_get_output_info_modes_length(info_reply);
-      xcb_randr_mode_t *modes = xcb_randr_get_output_info_modes(info_reply);
-
+      
       if (num_modes == 0) {
         fprintf(stderr, "No modes for output %.*s\n", name_len, name);
         fflush(stderr);
@@ -701,6 +717,32 @@ static int cmp_monitor_xy(const void *a, const void *b) {
   return 0;
 }
 
+static int get_output_name(xcb_connection_t *conn, xcb_randr_output_t output, char out_name[OUTPUT_NAME_MAX]) {
+  out_name[0] = '\0';
+
+  xcb_randr_get_output_info_reply_t *info = xcb_randr_get_output_info_reply(conn, xcb_randr_get_output_info(conn, output, XCB_CURRENT_TIME), NULL);
+
+  if (!info)
+    return -1;
+
+  int len = xcb_randr_get_output_info_name_length(info);
+  const char *name = (const char *)xcb_randr_get_output_info_name(info);
+
+  if (len <= 0 || !name) {
+    free(info);
+    return -1;
+  }
+
+  if (len >= OUTPUT_NAME_MAX)
+    len = OUTPUT_NAME_MAX - 1;
+
+  memcpy(out_name, name, len);
+  out_name[len] = '\0';
+
+  free(info);
+  return 0;
+}
+
 void query_xrandr(xcb_connection_t *conn, xcb_screen_t *screen) {
   xcb_randr_get_screen_resources_current_cookie_t res_cookie = xcb_randr_get_screen_resources_current(conn, screen->root);
   xcb_randr_get_screen_resources_current_reply_t *res_reply = xcb_randr_get_screen_resources_current_reply(conn, res_cookie, NULL);
@@ -711,65 +753,46 @@ void query_xrandr(xcb_connection_t *conn, xcb_screen_t *screen) {
   }
 
   monitor_count = 0;
-
-  int num_crtcs = xcb_randr_get_screen_resources_current_crtcs_length(res_reply);
-  xcb_randr_crtc_t *crtcs = xcb_randr_get_screen_resources_current_crtcs(res_reply);
-
-  xcb_randr_mode_info_t *modes = xcb_randr_get_screen_resources_current_modes(res_reply);
-  int num_modes = xcb_randr_get_screen_resources_current_modes_length(res_reply);
-
-  for (int i = 0; i < num_crtcs; i++) {
-    xcb_randr_crtc_t crtc = crtcs[i];
-    xcb_randr_get_crtc_info_cookie_t crtc_cookie = xcb_randr_get_crtc_info(conn, crtc, XCB_CURRENT_TIME);
-    xcb_randr_get_crtc_info_reply_t *crtc_reply = xcb_randr_get_crtc_info_reply(conn, crtc_cookie, NULL);
-    if (crtc_reply && crtc_reply->mode != XCB_NONE && crtc_reply->width > 0 && crtc_reply->height > 0 && monitor_count < MAX_MONITORS) {
-      monitors[monitor_count].id = crtc;
-      monitors[monitor_count].x = crtc_reply->x;
-      monitors[monitor_count].y = crtc_reply->y;
-      monitors[monitor_count].width = crtc_reply->width;
-      monitors[monitor_count].height = crtc_reply->height;
-      monitors[monitor_count].rotation = crtc_reply->rotation;
-
-      double refresh_rate = 0.0;
-      xcb_randr_mode_info_t *mode_info = NULL;
-      for (int j = 0; j < num_modes; j++) {
-        if (modes[j].id == crtc_reply->mode) {
-          mode_info = &modes[j];
-          break;
-        }
-      }
-
-      if (mode_info) {
-        double htotal = mode_info->htotal;
-        double vtotal = mode_info->vtotal;
-        double dot_clock = mode_info->dot_clock;
-
-        if (htotal > 0 && vtotal > 0) {
-          refresh_rate = dot_clock / (htotal * vtotal);
-        }
-      }
-
-      char *rotation_str =
-        (crtc_reply->rotation & XCB_RANDR_ROTATION_ROTATE_0) ? "Normal" :
-        (crtc_reply->rotation & XCB_RANDR_ROTATION_ROTATE_90) ? "Rotated 90" :
-        (crtc_reply->rotation & XCB_RANDR_ROTATION_ROTATE_180) ? "Rotated 180" :
-        (crtc_reply->rotation & XCB_RANDR_ROTATION_ROTATE_270) ? "Rotated 270" :
-        "Unknown";
-
-      fprintf(stderr, "Monitor %d: x=%d, y=%d, width=%d, height=%d, refresh=%.2fHz, rotation=%s\n",
-        monitor_count,
-        monitors[monitor_count].x,
-        monitors[monitor_count].y,
-        monitors[monitor_count].width,
-        monitors[monitor_count].height,
-        refresh_rate,
-        rotation_str
-      );
-      fflush(stderr);
-
-      monitor_count++;
+  int num_outputs = xcb_randr_get_screen_resources_current_outputs_length(res_reply);
+  xcb_randr_output_t *outputs = xcb_randr_get_screen_resources_current_outputs(res_reply);  
+  for (int i = 0; i < num_outputs; i++) {
+    if (monitor_count >= MAX_MONITORS)
+      break;
+  
+    xcb_randr_output_t output = outputs[i];
+    xcb_randr_get_output_info_reply_t *info_reply = xcb_randr_get_output_info_reply(conn, xcb_randr_get_output_info(conn, output, XCB_CURRENT_TIME), NULL);
+  
+    if (!info_reply)
+      continue;
+  
+    if (info_reply->connection != XCB_RANDR_CONNECTION_CONNECTED || info_reply->crtc == XCB_NONE) {
+      free(info_reply);
+      continue;
     }
+    
+    xcb_randr_crtc_t crtc = info_reply->crtc;
+    xcb_randr_get_crtc_info_reply_t *crtc_reply = xcb_randr_get_crtc_info_reply(conn, xcb_randr_get_crtc_info(conn, crtc, XCB_CURRENT_TIME), NULL);
+    
+    if (!crtc_reply || crtc_reply->mode == XCB_NONE || crtc_reply->width <= 0 || crtc_reply->height <= 0) {
+      free(crtc_reply);
+      free(info_reply);
+      continue;
+    }
+  
+    monitors[monitor_count].crtc = crtc;
+    monitors[monitor_count].output = output;
+    monitors[monitor_count].x = crtc_reply->x;
+    monitors[monitor_count].y = crtc_reply->y;
+    monitors[monitor_count].width = crtc_reply->width;
+    monitors[monitor_count].height = crtc_reply->height;
+    monitors[monitor_count].rotation = crtc_reply->rotation;
+    monitors[monitor_count].output_name[0] = '\0';
+    get_output_name(conn, output, monitors[monitor_count].output_name);
+    
+    monitor_count++;
+  
     free(crtc_reply);
+    free(info_reply);
   }
   free(res_reply);
 
@@ -841,37 +864,39 @@ void update_touch_devices(xcb_connection_t *conn) {
   free(reply);
 }
 
-static monitor_t *resolve_monitor_ref(int ref) {
-  if (ref < 0 || ref >= monitor_count)
+static monitor_t *resolve_monitor_by_name(const char *name) {
+  if (!name || !name[0])
     return NULL;
-  return &monitors[ref];
+
+  for (int i = 0; i < monitor_count; i++) {
+    if (strcmp(monitors[i].output_name, name) == 0)
+      return &monitors[i];
+  }
+
+  return NULL;
 }
 
-int calculate_fullscreen_geometry(int xs[4], int *x1, int *y1, int *x2, int *y2) {
-  if (xs[0] == -1 || xs[1] == -1 || xs[2] == -1 || xs[3] == -1) {
-    *x1 = 0;
-    *y1 = 0;
-    *x2 = total_width;
-    *y2 = total_height;
-    return 0;
-  }
+static int calculate_fullscreen_geometry_names(const char names[4][OUTPUT_NAME_MAX], int *x1, int *y1, int *x2, int *y2) {
+  monitor_t *top    = resolve_monitor_by_name(names[0]);
+  monitor_t *bottom = resolve_monitor_by_name(names[1]);
+  monitor_t *left   = resolve_monitor_by_name(names[2]);
+  monitor_t *right  = resolve_monitor_by_name(names[3]);
 
-  monitor_t *top    = resolve_monitor_ref(xs[0]);
-  monitor_t *bottom = resolve_monitor_ref(xs[1]);
-  monitor_t *left   = resolve_monitor_ref(xs[2]);
-  monitor_t *right  = resolve_monitor_ref(xs[3]);
-
-  if (!top || !bottom || !left || !right) {
-    fprintf(stderr, "Invalid monitor refs in _NET_WM_FULLSCREEN_MONITORS (%d %d %d %d)\n", xs[0], xs[1], xs[2], xs[3]);
-    fflush(stderr);
+  if (!top || !bottom || !left || !right)
     return -1;
-  }
 
   *x1 = left->x;
   *y1 = top->y;
   *x2 = right->x + right->width;
   *y2 = bottom->y + bottom->height;
+
   return 0;
+}
+
+static monitor_t *resolve_monitor_ref(int ref) {
+  if (ref < 0 || ref >= monitor_count)
+    return NULL;
+  return &monitors[ref];
 }
 
 int add_fullscreen_window(xcb_connection_t *conn, xcb_window_t window) {
@@ -897,6 +922,8 @@ int add_fullscreen_window(xcb_connection_t *conn, xcb_window_t window) {
   fs_windows[fullscreen_count].has_monitors = 0;
   fs_windows[fullscreen_count].is_general_fullscreen = 0;
   fs_windows[fullscreen_count].is_monitor_fullscreen = 0;
+  for (int i = 0; i < 4; i++)
+    fs_windows[fullscreen_count].monitor_output_names[i][0] = '\0';
   free(geom_reply);
   fullscreen_count++;
   return fullscreen_count - 1;
@@ -1168,19 +1195,19 @@ void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *c
       if (action == 1) {
         uint32_t values[] = { XCB_STACK_MODE_ABOVE };
         xcb_configure_window(conn, cm->window, XCB_CONFIG_WINDOW_STACK_MODE, values);
+        add_net_wm_state_atom(conn, cm->window, atom_net_wm_state_above);
         add_to_always_on_top(cm->window);
       } else if (action == 0) {
-        uint32_t values[] = { XCB_STACK_MODE_BELOW };
-        xcb_configure_window(conn, cm->window, XCB_CONFIG_WINDOW_STACK_MODE, values);
+        remove_net_wm_state_atom(conn, cm->window, atom_net_wm_state_above);
         remove_from_always_on_top(cm->window);
       } else if (action == 2) {
         if (is_always_on_top(cm->window)) {
-          uint32_t values[] = { XCB_STACK_MODE_BELOW };
-          xcb_configure_window(conn, cm->window, XCB_CONFIG_WINDOW_STACK_MODE, values);
+          remove_net_wm_state_atom(conn, cm->window, atom_net_wm_state_above);
           remove_from_always_on_top(cm->window);
         } else {
           uint32_t values[] = { XCB_STACK_MODE_ABOVE };
           xcb_configure_window(conn, cm->window, XCB_CONFIG_WINDOW_STACK_MODE, values);
+          add_net_wm_state_atom(conn, cm->window, atom_net_wm_state_above);
           add_to_always_on_top(cm->window);
         }
       }
@@ -1247,28 +1274,82 @@ void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *c
 
     xcb_flush(conn);
   } else if (cm->type == atom_net_active_window) {
-    xcb_window_t target_window = cm->window;
-    if (target_window != XCB_WINDOW_NONE) {
-      uint32_t values[] = { XCB_STACK_MODE_ABOVE };
-      xcb_configure_window(conn, target_window, XCB_CONFIG_WINDOW_STACK_MODE, values);
-      set_input_focus(conn, target_window);
+    xcb_window_t target = cm->window;
+    if (target == XCB_WINDOW_NONE || target == screen->root)
+      return;
+  
+    xcb_timestamp_t timestamp = cm->data.data32[1];
+    xcb_get_window_attributes_reply_t *attr = xcb_get_window_attributes_reply(conn, xcb_get_window_attributes(conn, target), NULL);
+  
+    if (!attr)
+      return;
+  
+    if (attr->map_state != XCB_MAP_STATE_VIEWABLE || attr->override_redirect) {
+      free(attr);
+      return;
     }
+    free(attr);
+  
+    uint32_t stack[] = { XCB_STACK_MODE_ABOVE };
+    xcb_configure_window(conn, target, XCB_CONFIG_WINDOW_STACK_MODE, stack);
+    set_input_focus_ts(conn, target, timestamp);
   } else if (cm->type == atom_net_wm_fullscreen_monitors) {
     int xs[4];
     xs[0] = cm->data.data32[0];
     xs[1] = cm->data.data32[1];
     xs[2] = cm->data.data32[2];
     xs[3] = cm->data.data32[3];
+  
+    if (xs[0] == -1 || xs[1] == -1 || xs[2] == -1 || xs[3] == -1) {
+      uint32_t values[] = { 0, 0, total_width, total_height };
+      uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
 
-    int x1, y1, x2, y2;
-    if (calculate_fullscreen_geometry(xs, &x1, &y1, &x2, &y2) != 0)
+      xcb_configure_window(conn, cm->window, mask, values);
+      send_configure_notify(conn, cm->window, 0, 0, total_width, total_height);
+  
+      add_net_wm_state_atom(conn, cm->window, atom_net_wm_state_fullscreen);
+  
+      int index = -1;
+      for (int i = 0; i < fullscreen_count; i++) {
+        if (fs_windows[i].window == cm->window) {
+          index = i;
+          break;
+        }
+      }
+
+      if (index == -1)
+        index = add_fullscreen_window(conn, cm->window);
+
+      if (index != -1) {
+        fs_windows[index].has_monitors = 0;
+        fs_windows[index].is_general_fullscreen = 1;
+        fs_windows[index].is_monitor_fullscreen = 0;
+      }
+
+      xcb_flush(conn);
       return;
+    }
+    
+    monitor_t *mtop    = resolve_monitor_ref(xs[0]);
+    monitor_t *mbottom = resolve_monitor_ref(xs[1]);
+    monitor_t *mleft   = resolve_monitor_ref(xs[2]);
+    monitor_t *mright  = resolve_monitor_ref(xs[3]);
+
+    if (!mtop || !mbottom || !mleft || !mright)
+      return;
+
+    int x1 = mleft->x;
+    int y1 = mtop->y;
+    int x2 = mright->x + mright->width;
+    int y2 = mbottom->y + mbottom->height;
 
     uint32_t values[] = { x1, y1, x2 - x1, y2 - y1 };
     uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+
     xcb_configure_window(conn, cm->window, mask, values);
     send_configure_notify(conn, cm->window, x1, y1, x2 - x1, y2 - y1);
-    add_net_wm_state_atom(conn, cm->window, atom_net_wm_state_fullscreen);
+
+    add_net_wm_state_atom(conn, cm->window,atom_net_wm_state_fullscreen);
 
     int index = -1;
     for (int i = 0; i < fullscreen_count; i++) {
@@ -1282,12 +1363,18 @@ void handle_client_message(xcb_connection_t *conn, xcb_client_message_event_t *c
       index = add_fullscreen_window(conn, cm->window);
 
     if (index != -1) {
-      for (int i = 0; i < 4; i++)
-        fs_windows[index].monitors[i] = xs[i];
+      monitor_t *ms[4] = { mtop, mbottom, mleft, mright };
+      
+      for (int i = 0; i < 4; i++) {
+        strncpy(fs_windows[index].monitor_output_names[i], ms[i]->output_name, OUTPUT_NAME_MAX - 1);
+        fs_windows[index].monitor_output_names[i][OUTPUT_NAME_MAX - 1] = '\0';
+      }
+      
       fs_windows[index].has_monitors = 1;
       fs_windows[index].is_monitor_fullscreen = 1;
       fs_windows[index].is_general_fullscreen = 0;
     }
+
     xcb_flush(conn);
   } else if (cm->type == atom_net_close_window) {
     if (window_is_dock(conn, cm->window) || window_is_splash(conn, cm->window))
@@ -1496,18 +1583,22 @@ void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_
   for (int i = 0; i < fullscreen_count; i++) {
     xcb_window_t window = fs_windows[i].window;
     if (fs_windows[i].has_monitors) {
-      int *xs = fs_windows[i].monitors;
       int x1, y1, x2, y2;
-      if (calculate_fullscreen_geometry(xs, &x1, &y1, &x2, &y2) != 0)
-        continue;
+      if (calculate_fullscreen_geometry_names(fs_windows[i].monitor_output_names, &x1, &y1, &x2, &y2) == 0) {
+        int width = x2 - x1;
+        int height = y2 - y1;
+        uint32_t values[] = { x1, y1, width, height };
+        uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+        xcb_configure_window(conn, window, mask, values);
+        send_configure_notify(conn, window, x1, y1, width, height);
 
-      int width  = x2 - x1;
-      int height = y2 - y1;
+      } else {
+        uint32_t values[] = { 0, 0, total_width, total_height };
+        uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+        xcb_configure_window(conn, window, mask, values);
+        send_configure_notify(conn, window, 0, 0, total_width, total_height);
+      }
 
-      uint32_t values[] = { x1, y1, width, height };
-      uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
-      xcb_configure_window(conn, window, mask, values);
-      send_configure_notify(conn, window, x1, y1, width, height);
     } else {
       uint32_t values[] = { 0, 0, total_width, total_height };
       uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
@@ -1657,8 +1748,18 @@ int main() {
 
   if (active_window != XCB_WINDOW_NONE)
     remove_net_active_window(conn);
-
+  
+  if (pixmap != XCB_PIXMAP_NONE) {
+    xcb_free_pixmap(conn, pixmap);
+    pixmap = XCB_PIXMAP_NONE;
+  }
+  
+  if (wm_support_window != XCB_WINDOW_NONE)
+    xcb_destroy_window(conn, wm_support_window);
+  
   xcb_free_cursor(conn, blank_cursor);
+  
+  xcb_flush(conn);
   xcb_disconnect(conn);
   return 0;
 }
