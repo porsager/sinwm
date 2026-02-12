@@ -289,7 +289,7 @@ void setup_atoms(xcb_connection_t *conn) {
                         , *reply_net_wm_window_type = xcb_intern_atom_reply(conn, cookie_net_wm_window_type, NULL)
                         , *reply_net_wm_window_type_dock = xcb_intern_atom_reply(conn, cookie_net_wm_window_type_dock, NULL)
                         , *reply_net_close_window = xcb_intern_atom_reply(conn, cookie_net_close_window, NULL)
-                        , *reply_net_wm_window_type_splash = xcb_intern_atom_reply(conn, cookie_net_wm_window_type_splash, NULL);
+                        , *reply_net_wm_window_type_splash = xcb_intern_atom_reply(conn, cookie_net_wm_window_type_splash, NULL)
                         , *reply_utf8_string = xcb_intern_atom_reply(conn, cookie_utf8_string, NULL)
                         , *reply_wm_name = xcb_intern_atom_reply(conn, cookie_wm_name, NULL)
                         , *reply_wm_class = xcb_intern_atom_reply(conn, cookie_wm_class, NULL)
@@ -549,9 +549,8 @@ void enable_new_outputs(xcb_connection_t *conn, xcb_screen_t *screen) {
 
       if (set_crtc_reply)
         free(set_crtc_reply);
-      
-      free(info_reply);
     }
+    free(info_reply);
   }
 
   free(res_reply);
@@ -1396,7 +1395,7 @@ void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_
   query_xrandr(conn, screen);
 
   if (real_total_width <= 0 || real_total_height <= 0) {
-    fprintf(stderr, "No monitors connected after RandR event, skipping window adjustments.\n");
+    fprintf(stderr, "No monitors connected after reconfigure, skipping.\n");
     fflush(stderr);
     return;
   }
@@ -1415,7 +1414,6 @@ void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_
     xcb_window_t window = fs_windows[i].window;
     if (fs_windows[i].has_monitors) {
       int *xs = fs_windows[i].monitors;
-
       int x1, y1, x2, y2;
       if (calculate_fullscreen_geometry(xs, &x1, &y1, &x2, &y2) != 0)
         continue;
@@ -1432,7 +1430,7 @@ void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_
         int width = x2 - x1;
         int height = y2 - y1;
 
-        uint32_t values[] = { x1, y1, width, height };
+      uint32_t values[] = { x1, y1, width, height };
         uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
         xcb_configure_window(conn, window, mask, values);
         send_configure_notify(conn, window, x1, y1, width, height);
@@ -1449,7 +1447,6 @@ void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_
     uint32_t stack[] = { XCB_STACK_MODE_ABOVE };
     xcb_configure_window(conn, fs_windows[i].window, XCB_CONFIG_WINDOW_STACK_MODE, stack);
   }
-  
   for (int i = 0; i < always_on_top_count; i++) {
     uint32_t stack[] = { XCB_STACK_MODE_ABOVE };
     xcb_configure_window(conn, always_on_top_windows[i], XCB_CONFIG_WINDOW_STACK_MODE, stack);
@@ -1460,6 +1457,7 @@ void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_
   xcb_clear_area(conn, 0, screen->root, 0, 0, real_total_width, real_total_height);
   set_wallpaper(conn, screen);
   update_touch_devices(conn);
+
   xcb_flush(conn);
 }
 
