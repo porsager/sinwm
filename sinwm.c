@@ -1564,6 +1564,7 @@ int main() {
   setup_ewmh(conn, screen);
 
   initial_randr_apply(conn, screen);
+  handle_randr_event(conn, &(xcb_generic_event_t){ .response_type = randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY }, screen, randr_event_base);
 
   xcb_cursor_t blank_cursor = create_blank_cursor(conn, screen);
   uint32_t cursors[] = {blank_cursor};
