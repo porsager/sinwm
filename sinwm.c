@@ -70,7 +70,11 @@ typedef struct {
 
 static monitor_t monitors[MAX_MONITORS];
 static int monitor_count = 0;
-static int last_monitor_count = -1;
+
+static monitor_t previous_monitors[MAX_MONITORS];
+static int previous_monitor_count = 0;
+static int previous_total_width = 0;
+static int previous_total_height = 0;
 
 static int total_width = 0, total_height = 0;
 static int real_total_width = 0, real_total_height = 0;
@@ -561,9 +565,6 @@ static void query_xrandr(xcb_connection_t *conn, xcb_screen_t *screen) {
   if (real_total_width == 0 || real_total_height == 0) {
     fprintf(stderr, "Falling back to previous screen size: %dx%d\n", total_width, total_height);
     fflush(stderr);
-  } else {
-    total_width = real_total_width;
-    total_height = real_total_height;
   }
 }
 
@@ -1274,8 +1275,62 @@ static void handle_configure_request(xcb_connection_t *conn, xcb_configure_reque
   xcb_flush(conn);
 }
 
+static int monitor_layout_changed() {
+  if (monitor_count != previous_monitor_count)
+    return 1;
+
+  if (real_total_width != previous_total_width ||
+      real_total_height != previous_total_height)
+    return 1;
+
+  for (int i = 0; i < monitor_count; i++) {
+    if (monitors[i].x != previous_monitors[i].x ||
+        monitors[i].y != previous_monitors[i].y ||
+        monitors[i].width != previous_monitors[i].width ||
+        monitors[i].height != previous_monitors[i].height ||
+        monitors[i].rotation != previous_monitors[i].rotation)
+      return 1;
+  }
+
+  return 0;
+}
+
+static void save_monitor_layout_state() {
+  previous_monitor_count = monitor_count;
+  previous_total_width = real_total_width;
+  previous_total_height = real_total_height;
+
+  for (int i = 0; i < monitor_count; i++)
+    previous_monitors[i] = monitors[i];
+}
+
+static void configure_if_changed(
+  xcb_connection_t *conn,
+  xcb_window_t window,
+  int x,
+  int y,
+  int width,
+  int height
+) {
+  xcb_get_geometry_cookie_t gc = xcb_get_geometry(conn, window);
+  xcb_get_geometry_reply_t *gr = xcb_get_geometry_reply(conn, gc, NULL);
+
+  if (!gr)
+    return;
+
+  if (gr->x != x || gr->y != y || gr->width != width || gr->height != height) {
+    uint32_t values[] = { x, y, width, height };
+    uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+    xcb_configure_window(conn, window, mask, values);
+    send_configure_notify(conn, window, x, y, width, height);
+  }
+
+  free(gr);
+}
+
 static void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_screen_t *screen, uint8_t randr_event_base) {
   uint8_t type = event->response_type & ~0x80;
+  
   if (type == randr_event_base + XCB_RANDR_NOTIFY) {
     xcb_randr_notify_event_t *re = (xcb_randr_notify_event_t *)event;
     if (re->subCode != XCB_RANDR_NOTIFY_CRTC_CHANGE && re->subCode != XCB_RANDR_NOTIFY_OUTPUT_CHANGE && re->subCode != XCB_RANDR_NOTIFY_OUTPUT_PROPERTY)
@@ -1286,18 +1341,14 @@ static void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *even
 
   query_xrandr(conn, screen);
 
-  if (real_total_width <= 0 || real_total_height <= 0) {
-    fprintf(stderr, "No monitors connected after RandR event, skipping.\n");
-    fflush(stderr);
+  if (real_total_width <= 0 || real_total_height <= 0)
     return;
-  }
-
-  last_monitor_count = monitor_count;
-
-  if (real_total_width > 0 && real_total_height > 0) {
-    total_width = real_total_width;
-    total_height = real_total_height;
-  }
+  
+  if (!monitor_layout_changed())
+    return;
+  
+  total_width = real_total_width;
+  total_height = real_total_height;
   adjust_windows_within_bounds(conn, screen);
 
   for (int i = 0; i < fullscreen_count; i++) {
@@ -1307,23 +1358,13 @@ static void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *even
       if (calculate_fullscreen_geometry_names(fs_windows[i].monitor_output_names, &x1, &y1, &x2, &y2) == 0) {
         int width = x2 - x1;
         int height = y2 - y1;
-        uint32_t values[] = { x1, y1, width, height };
-        uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
-        xcb_configure_window(conn, window, mask, values);
-        send_configure_notify(conn, window, x1, y1, width, height);
-
+        configure_if_changed(conn, window, x1, y1, width, height);
       } else {
-        uint32_t values[] = { 0, 0, total_width, total_height };
-        uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
-        xcb_configure_window(conn, window, mask, values);
-        send_configure_notify(conn, window, 0, 0, total_width, total_height);
+        configure_if_changed(conn, window, 0, 0, total_width, total_height);
       }
 
     } else {
-      uint32_t values[] = { 0, 0, total_width, total_height };
-      uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
-      xcb_configure_window(conn, window, mask, values);
-      send_configure_notify(conn, window, 0, 0, total_width, total_height);
+      configure_if_changed(conn, window, 0, 0, total_width, total_height);
     }
   }
 
@@ -1336,12 +1377,9 @@ static void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *even
     xcb_configure_window(conn, always_on_top_windows[i], XCB_CONFIG_WINDOW_STACK_MODE, stack);
   }
 
-  uint32_t none = XCB_NONE;
-  xcb_change_window_attributes(conn, screen->root, XCB_CW_BACK_PIXMAP, &none);
-  xcb_clear_area(conn, 0, screen->root, 0, 0, real_total_width, real_total_height);
   set_wallpaper(conn, screen);
   update_touch_devices(conn);
-
+  save_monitor_layout_state();
   xcb_flush(conn);
 }
 
