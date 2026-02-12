@@ -599,6 +599,29 @@ void disable_disconnected_outputs(xcb_connection_t *conn, xcb_screen_t *screen) 
   free(res_reply);
 }
 
+static int randr_has_defined_layout(xcb_connection_t *conn, xcb_screen_t *screen) {
+  xcb_randr_get_screen_resources_current_reply_t *res = xcb_randr_get_screen_resources_current_reply(conn, xcb_randr_get_screen_resources_current(conn, screen->root), NULL);
+  if (!res)
+    return 0;
+
+  int num_crtcs = xcb_randr_get_screen_resources_current_crtcs_length(res);
+  xcb_randr_crtc_t *crtcs = xcb_randr_get_screen_resources_current_crtcs(res);
+  int positioned = 0;
+
+  for (int i = 0; i < num_crtcs; i++) {
+    xcb_randr_get_crtc_info_reply_t *ci = xcb_randr_get_crtc_info_reply(conn, xcb_randr_get_crtc_info(conn, crtcs[i], XCB_CURRENT_TIME), NULL);
+    if (!ci)
+      continue;
+
+    if (ci->mode != XCB_NONE && ci->width > 0 && ci->height > 0)
+      positioned++;
+    
+    free(ci);
+  }
+  free(res);
+  return positioned > 0;
+}
+
 void reposition_outputs(xcb_connection_t *conn, xcb_screen_t *screen, int force_reposition) {
   if (!force_reposition)
     return;
@@ -1389,11 +1412,15 @@ void handle_randr_event(xcb_connection_t *conn, xcb_generic_event_t *event, xcb_
   int is_screen_change = type == randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY;
   int force_reposition = is_screen_change && monitor_count == 0;
 
+  int has_layout = randr_has_defined_layout(conn, screen);
   disable_disconnected_outputs(conn, screen);
   enable_new_outputs(conn, screen);
-  reposition_outputs(conn, screen, force_reposition);
+  
+  if (!has_layout)
+    reposition_outputs(conn, screen, 1);
+  
   query_xrandr(conn, screen);
-
+  
   if (real_total_width <= 0 || real_total_height <= 0) {
     fprintf(stderr, "No monitors connected after reconfigure, skipping.\n");
     fflush(stderr);
