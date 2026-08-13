@@ -1,5 +1,6 @@
 #include <xcb/xcb.h>
 #include <xcb/randr.h>
+#include <xcb/xinerama.h>
 #include <xcb/xcb_icccm.h>
 #include <xcb/xinput.h>
 #include <stdio.h>
@@ -70,6 +71,9 @@ typedef struct {
 
 static monitor_t monitors[MAX_MONITORS];
 static int monitor_count = 0;
+
+static int ewmh_index_to_monitor[MAX_MONITORS];
+static int ewmh_index_count = 0;
 
 static monitor_t previous_monitors[MAX_MONITORS];
 static int previous_monitor_count = 0;
@@ -494,6 +498,47 @@ static int get_output_name(xcb_connection_t *conn, xcb_randr_output_t output, ch
   return 0;
 }
 
+static void build_xinerama_map(xcb_connection_t *conn) {
+  ewmh_index_count = 0;
+
+  xcb_xinerama_is_active_reply_t *active_reply = xcb_xinerama_is_active_reply(conn, xcb_xinerama_is_active(conn), NULL);
+  if (!active_reply)
+    return;
+
+  int active = active_reply->state;
+  free(active_reply);
+
+  if (!active)
+    return;
+
+  xcb_xinerama_query_screens_reply_t *screens_reply = xcb_xinerama_query_screens_reply(conn, xcb_xinerama_query_screens(conn), NULL);
+  if (!screens_reply)
+    return;
+
+  int n = xcb_xinerama_query_screens_screen_info_length(screens_reply);
+  xcb_xinerama_screen_info_t *info = xcb_xinerama_query_screens_screen_info(screens_reply);
+
+  for (int i = 0; i < n && ewmh_index_count < MAX_MONITORS; i++) {
+    int found = -1;
+    for (int j = 0; j < monitor_count; j++) {
+      if (monitors[j].x == info[i].x_org && monitors[j].y == info[i].y_org &&
+          monitors[j].width == info[i].width && monitors[j].height == info[i].height) {
+        found = j;
+        break;
+      }
+    }
+
+    if (found == -1) {
+      fprintf(stderr, "Xinerama screen %d (%dx%d+%d+%d) has no matching RandR monitor\n", i, info[i].width, info[i].height, info[i].x_org, info[i].y_org);
+      fflush(stderr);
+    }
+
+    ewmh_index_to_monitor[ewmh_index_count++] = found;
+  }
+
+  free(screens_reply);
+}
+
 static void query_xrandr(xcb_connection_t *conn, xcb_screen_t *screen) {
   xcb_randr_get_screen_resources_current_cookie_t res_cookie = xcb_randr_get_screen_resources_current(conn, screen->root);
   xcb_randr_get_screen_resources_current_reply_t *res_reply = xcb_randr_get_screen_resources_current_reply(conn, res_cookie, NULL);
@@ -548,6 +593,8 @@ static void query_xrandr(xcb_connection_t *conn, xcb_screen_t *screen) {
   free(res_reply);
 
   qsort(monitors, monitor_count, sizeof(monitors[0]), cmp_monitor_xy);
+
+  build_xinerama_map(conn);
 
   real_total_width = 0;
   real_total_height = 0;
@@ -632,27 +679,69 @@ static monitor_t *resolve_monitor_by_name(const char *name) {
   return NULL;
 }
 
-static int calculate_fullscreen_geometry_names(const char names[4][OUTPUT_NAME_MAX], int *x1, int *y1, int *x2, int *y2) {
-  monitor_t *top    = resolve_monitor_by_name(names[0]);
-  monitor_t *bottom = resolve_monitor_by_name(names[1]);
-  monitor_t *left   = resolve_monitor_by_name(names[2]);
-  monitor_t *right  = resolve_monitor_by_name(names[3]);
-
-  if (!top || !bottom || !left || !right)
+static int fullscreen_bounds(monitor_t *ms[4], int *out_x, int *out_y, int *out_width, int *out_height) {
+  if (!ms[0] || !ms[1] || !ms[2] || !ms[3])
     return -1;
 
-  *x1 = left->x;
-  *y1 = top->y;
-  *x2 = right->x + right->width;
-  *y2 = bottom->y + bottom->height;
+  int x1 = ms[0]->x;
+  int y1 = ms[0]->y;
+  int x2 = ms[0]->x + ms[0]->width;
+  int y2 = ms[0]->y + ms[0]->height;
+
+  for (int i = 1; i < 4; i++) {
+    if (ms[i]->x < x1)
+      x1 = ms[i]->x;
+    if (ms[i]->y < y1)
+      y1 = ms[i]->y;
+    if (ms[i]->x + ms[i]->width > x2)
+      x2 = ms[i]->x + ms[i]->width;
+    if (ms[i]->y + ms[i]->height > y2)
+      y2 = ms[i]->y + ms[i]->height;
+  }
+
+  if (x2 <= x1 || y2 <= y1)
+    return -1;
+
+  *out_x = x1;
+  *out_y = y1;
+  *out_width = x2 - x1;
+  *out_height = y2 - y1;
+  return 0;
+}
+
+static int calculate_fullscreen_geometry_names(const char names[4][OUTPUT_NAME_MAX], int *x1, int *y1, int *x2, int *y2) {
+  monitor_t *ms[4] = {
+    resolve_monitor_by_name(names[0]),
+    resolve_monitor_by_name(names[1]),
+    resolve_monitor_by_name(names[2]),
+    resolve_monitor_by_name(names[3])
+  };
+
+  int x, y, width, height;
+  if (fullscreen_bounds(ms, &x, &y, &width, &height) != 0)
+    return -1;
+
+  *x1 = x;
+  *y1 = y;
+  *x2 = x + width;
+  *y2 = y + height;
 
   return 0;
 }
 
 static monitor_t *resolve_monitor_ref(int ref) {
-  if (ref < 0 || ref >= monitor_count)
+  if (ref < 0)
     return NULL;
-  return &monitors[ref];
+
+  if (ref < ewmh_index_count) {
+    int j = ewmh_index_to_monitor[ref];
+    return (j >= 0 && j < monitor_count) ? &monitors[j] : NULL;
+  }
+
+  if (ref < monitor_count)
+    return &monitors[ref];
+
+  return NULL;
 }
 
 static int add_fullscreen_window(xcb_connection_t *conn, xcb_window_t window) {
@@ -1094,16 +1183,20 @@ static void handle_client_message(xcb_connection_t *conn, xcb_client_message_eve
     if (!mtop || !mbottom || !mleft || !mright)
       return;
 
-    int x1 = mleft->x;
-    int y1 = mtop->y;
-    int x2 = mright->x + mright->width;
-    int y2 = mbottom->y + mbottom->height;
+    monitor_t *ms[4] = { mtop, mbottom, mleft, mright };
+    int fs_x, fs_y, fs_width, fs_height;
 
-    uint32_t values[] = { x1, y1, x2 - x1, y2 - y1 };
+    if (fullscreen_bounds(ms, &fs_x, &fs_y, &fs_width, &fs_height) != 0) {
+      fprintf(stderr, "Degenerate fullscreen monitor set (%d %d %d %d)\n", xs[0], xs[1], xs[2], xs[3]);
+      fflush(stderr);
+      return;
+    }
+
+    uint32_t values[] = { (uint32_t)fs_x, (uint32_t)fs_y, (uint32_t)fs_width, (uint32_t)fs_height };
     uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
 
     xcb_configure_window(conn, cm->window, mask, values);
-    send_configure_notify(conn, cm->window, x1, y1, x2 - x1, y2 - y1);
+    send_configure_notify(conn, cm->window, fs_x, fs_y, fs_width, fs_height);
 
     add_net_wm_state_atom(conn, cm->window,atom_net_wm_state_fullscreen);
 
@@ -1119,8 +1212,6 @@ static void handle_client_message(xcb_connection_t *conn, xcb_client_message_eve
       index = add_fullscreen_window(conn, cm->window);
 
     if (index != -1) {
-      monitor_t *ms[4] = { mtop, mbottom, mleft, mright };
-
       for (int i = 0; i < 4; i++) {
         strncpy(fs_windows[index].monitor_output_names[i], ms[i]->output_name, OUTPUT_NAME_MAX - 1);
         fs_windows[index].monitor_output_names[i][OUTPUT_NAME_MAX - 1] = '\0';

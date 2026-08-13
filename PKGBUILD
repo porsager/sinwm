@@ -1,5 +1,5 @@
 pkgname=sinwm
-pkgver=1.1.2
+pkgver=1.2.0
 pkgrel=1
 pkgdesc="Sin Window Manager"
 arch=('x86_64')
@@ -9,7 +9,7 @@ source=("sinwm.c")
 md5sums=('SKIP')
 
 build() {
-  gcc -o "$pkgname" "$srcdir/$pkgname.c" -lxcb -lxcb-xinput -lxcb-icccm -lxcb-randr -lxcb-image -lpng
+  gcc -o "$pkgname" "$srcdir/$pkgname.c" -lxcb -lxcb-xinput -lxcb-icccm -lxcb-randr -lxcb-image -lxcb-xinerama -lpng
 }
 
 package() {
